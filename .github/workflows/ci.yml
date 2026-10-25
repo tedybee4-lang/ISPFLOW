@@ -118,7 +118,7 @@ jobs:
         run: sh -n docker/entrypoint.sh
 
       - name: Run backend test suite
-        run: pytest tests/ -q
+        run: python -m pytest tests/ -q
 
       - name: Install frontend dependencies
         working-directory: isp-billing-frontend
