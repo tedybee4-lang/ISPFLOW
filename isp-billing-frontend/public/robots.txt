@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://ispflow.co.ke/sitemap.xml
