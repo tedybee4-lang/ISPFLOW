@@ -3,6 +3,9 @@
 This guide documents the verified local development setup in this checkout. It is
 not a production deployment guide.
 
+Production deployment planning and read-only preflight gates are documented in
+the workspace-level [VPS1Euro deployment readiness guide](../../docs/DEPLOYMENT_VPS1EURO.md).
+
 ## Project layout
 
 - Backend: `C:\Users\brayo\Desktop\MAPITOPROJECT\isp-billing-backend-master`

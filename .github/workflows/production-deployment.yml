@@ -1,0 +1,303 @@
+name: ISPFlow production preflight (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_read_only_preflight:
+        description: Run build, connectivity, backup, migration, and encryption checks only
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ispflow-production-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: inputs.run_read_only_preflight
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require the protected main branch
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Production preflight is restricted to main."
+            exit 1
+          fi
+
+      - name: Validate deployment inputs without printing them
+        env:
+          VPS_SSH_HOST: ${{ vars.VPS_SSH_HOST }}
+          VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT }}
+          VPS_DEPLOY_USER: ${{ vars.VPS_DEPLOY_USER }}
+          VPS_PUBLIC_IPV6: ${{ vars.VPS_PUBLIC_IPV6 }}
+          VPS_PUBLIC_IPV4: ${{ vars.VPS_PUBLIC_IPV4 }}
+          VPS_HEALTHCHECK_URL: ${{ vars.VPS_HEALTHCHECK_URL }}
+          PRODUCTION_ENCRYPTION_KEY_ID: ${{ vars.PRODUCTION_ENCRYPTION_KEY_ID }}
+          VPS_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.VPS_DEPLOY_SSH_PRIVATE_KEY }}
+          VPS_DEPLOY_KNOWN_HOSTS: ${{ secrets.VPS_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          python - <<'PY'
+          import ipaddress
+          import os
+          from urllib.parse import urlsplit
+
+          required = (
+              "VPS_SSH_HOST",
+              "VPS_SSH_PORT",
+              "VPS_DEPLOY_USER",
+              "VPS_PUBLIC_IPV6",
+              "VPS_HEALTHCHECK_URL",
+              "PRODUCTION_ENCRYPTION_KEY_ID",
+              "VPS_DEPLOY_SSH_PRIVATE_KEY",
+              "VPS_DEPLOY_KNOWN_HOSTS",
+          )
+          missing = [name for name in required if not os.environ.get(name, "").strip()]
+          if missing:
+              raise SystemExit("Missing protected production configuration: " + ", ".join(missing))
+
+          if os.environ["VPS_SSH_HOST"] != "vps-356313.ssh.vps1euro.fr":
+              raise SystemExit("SSH host does not match the reviewed VPS1Euro SSH endpoint.")
+          if os.environ["VPS_SSH_PORT"] != "9254":
+              raise SystemExit("SSH port does not match the reviewed VPS1Euro SSH proxy port.")
+          if os.environ["VPS_DEPLOY_USER"].strip().lower() == "root":
+              raise SystemExit("A dedicated non-root deployment account is required.")
+
+          ipv6 = ipaddress.ip_address(os.environ["VPS_PUBLIC_IPV6"])
+          if ipv6.version != 6 or ipv6.is_private or ipv6.is_loopback or ipv6.is_link_local:
+              raise SystemExit("VPS_PUBLIC_IPV6 must be a verified public IPv6 address.")
+
+          ipv4 = os.environ.get("VPS_PUBLIC_IPV4", "").strip()
+          if ipv4:
+              address = ipaddress.ip_address(ipv4)
+              if address.version != 4 or address.is_private or address.is_loopback or address.is_link_local:
+                  raise SystemExit("VPS_PUBLIC_IPV4 must be a verified public IPv4 address.")
+
+          health = urlsplit(os.environ["VPS_HEALTHCHECK_URL"])
+          if health.scheme != "https" or health.hostname != "ispflow.co.ke" or health.username or health.password:
+              raise SystemExit("VPS_HEALTHCHECK_URL must be an HTTPS health URL on ispflow.co.ke.")
+
+          known_hosts = os.environ["VPS_DEPLOY_KNOWN_HOSTS"].splitlines()
+          expected_host = f"[{os.environ['VPS_SSH_HOST']}]:{os.environ['VPS_SSH_PORT']}"
+          if not any(line.strip().startswith(expected_host + " ") for line in known_hosts):
+              raise SystemExit("Pinned known-hosts secret does not contain the configured host and port.")
+          print("Required values are present and structurally valid; secret values were not displayed.")
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: isp-billing-backend-master/requirements-dev.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: isp-billing-frontend/package-lock.json
+
+      - name: Build frontend artifact
+        working-directory: isp-billing-frontend
+        run: |
+          npm ci
+          npm run build
+          test -s dist/index.html
+          test -n "$(find dist/assets -type f -print -quit)"
+
+      - name: Validate backend and migration graph without database access
+        id: migrations
+        working-directory: isp-billing-backend-master
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:ci-only-password@127.0.0.1:55432/ispbilling_preflight
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:ci-only-password@127.0.0.1:55432/ispbilling_preflight
+          REDIS_URL: redis://127.0.0.1:6379/1
+          CELERY_BROKER_URL: redis://127.0.0.1:6379/2
+          CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/3
+          SECRET_KEY: ci-only-secret-not-for-deployment
+          MPESA_CONSUMER_KEY: ci-only-consumer-key
+          MPESA_CONSUMER_SECRET: ci-only-consumer-secret
+          MPESA_PASSKEY: ci-only-passkey
+          MPESA_SHORTCODE: "123456"
+          MPESA_CALLBACK_URL: https://example.invalid/callback
+          MPESA_ENVIRONMENT: sandbox
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m compileall -q app
+          alembic heads
+          python - <<'PY'
+          import re
+          import subprocess
+
+          output = subprocess.check_output(["alembic", "heads"], text=True)
+          heads = re.findall(r"^([0-9a-f]{12})\s+\(head\)$", output, re.MULTILINE)
+          if len(heads) != 1:
+              raise SystemExit("Expected exactly one Alembic head.")
+          with open(__import__("os").environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as result:
+              result.write(f"alembic_head={heads[0]}\n")
+          print("Migration graph has one head; no database was contacted or migrated.")
+          PY
+
+      - name: Verify public IP connectivity and HTTPS health without DNS changes
+        env:
+          VPS_PUBLIC_IPV6: ${{ vars.VPS_PUBLIC_IPV6 }}
+          VPS_PUBLIC_IPV4: ${{ vars.VPS_PUBLIC_IPV4 }}
+          VPS_HEALTHCHECK_URL: ${{ vars.VPS_HEALTHCHECK_URL }}
+        run: |
+          python - <<'PY'
+          import ipaddress
+          import os
+          import subprocess
+          from urllib.parse import urlsplit
+
+          url = os.environ["VPS_HEALTHCHECK_URL"]
+          host = urlsplit(url).hostname
+          addresses = [("IPv6", os.environ["VPS_PUBLIC_IPV6"])]
+          if os.environ.get("VPS_PUBLIC_IPV4", "").strip():
+              addresses.append(("IPv4", os.environ["VPS_PUBLIC_IPV4"]))
+
+          for family, raw_address in addresses:
+              address = ipaddress.ip_address(raw_address)
+              resolve_address = f"[{address}]" if address.version == 6 else str(address)
+              result = subprocess.run(
+                  [
+                      "curl", "--silent", "--show-error", "--fail",
+                      "--connect-timeout", "8", "--max-time", "20",
+                      "--resolve", f"{host}:443:{resolve_address}",
+                      "--output", "/dev/null", "--write-out", "%{http_code}",
+                      url,
+                  ],
+                  capture_output=True,
+                  text=True,
+                  check=False,
+              )
+              if result.returncode != 0 or result.stdout not in {"200", "204"}:
+                  raise SystemExit(f"{family} health check failed; no DNS records were changed.")
+              print(f"{family} HTTPS health check passed.")
+          PY
+
+      - name: Check SSH host key and read-only server preflight
+        env:
+          VPS_SSH_HOST: ${{ vars.VPS_SSH_HOST }}
+          VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT }}
+          VPS_DEPLOY_USER: ${{ vars.VPS_DEPLOY_USER }}
+          VPS_PUBLIC_IPV6: ${{ vars.VPS_PUBLIC_IPV6 }}
+          PRODUCTION_ENCRYPTION_KEY_ID: ${{ vars.PRODUCTION_ENCRYPTION_KEY_ID }}
+          VPS_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.VPS_DEPLOY_SSH_PRIVATE_KEY }}
+          VPS_DEPLOY_KNOWN_HOSTS: ${{ secrets.VPS_DEPLOY_KNOWN_HOSTS }}
+          EXPECTED_ALEMBIC_HEAD: ${{ steps.migrations.outputs.alembic_head }}
+        run: |
+          set -eu
+          key_file="$(mktemp)"
+          known_hosts_file="$(mktemp)"
+          report_file="$(mktemp)"
+          trap 'rm -f "$key_file" "$known_hosts_file" "$report_file"' EXIT
+          umask 077
+          printf '%s\n' "$VPS_DEPLOY_SSH_PRIVATE_KEY" > "$key_file"
+          printf '%s\n' "$VPS_DEPLOY_KNOWN_HOSTS" > "$known_hosts_file"
+          chmod 600 "$key_file" "$known_hosts_file"
+          host_entry="[$VPS_SSH_HOST]:$VPS_SSH_PORT"
+          ssh-keygen -F "$host_entry" -f "$known_hosts_file" >/dev/null
+
+          if ! ssh \
+            -p "$VPS_SSH_PORT" \
+            -i "$key_file" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts_file" \
+            -o ConnectTimeout=10 \
+            "$VPS_DEPLOY_USER@$VPS_SSH_HOST" \
+            /usr/local/libexec/ispflow-readonly-preflight \
+            --json \
+            --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+            > "$report_file" 2>/dev/null; then
+            echo "Strict SSH or the required read-only server preflight failed."
+            exit 1
+          fi
+
+          python - "$report_file" "$EXPECTED_ALEMBIC_HEAD" "$VPS_PUBLIC_IPV6" "$PRODUCTION_ENCRYPTION_KEY_ID" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timedelta, timezone
+
+          report_path, expected_head, expected_ipv6, expected_key_id = sys.argv[1:]
+          with open(report_path, encoding="utf-8") as source:
+              report = json.load(source)
+
+          required_true = (
+              "backup_verified",
+              "backup_restore_tested",
+              "candidate_schema_compatible",
+              "migration_review_completed",
+              "encryption_continuity_verified",
+              "encrypted_router_credentials_verified",
+          )
+          missing = [name for name in required_true if report.get(name) is not True]
+          if missing:
+              raise SystemExit("Server preflight did not confirm required safety checks: " + ", ".join(missing))
+          if report.get("deploy_user_uid", 0) <= 0:
+              raise SystemExit("Server reports a root deployment account; refusing to proceed.")
+          current_revision = report.get("current_alembic_revision", "")
+          if not isinstance(current_revision, str) or len(current_revision) != 12 or any(
+              character not in "0123456789abcdef" for character in current_revision
+          ):
+              raise SystemExit("Server did not provide a valid current Alembic revision.")
+          if report.get("target_alembic_revision") != expected_head:
+              raise SystemExit("Server preflight did not recognize this release's Alembic head.")
+          pending = report.get("pending_migrations")
+          if not isinstance(pending, list) or any(
+              not isinstance(revision, str)
+              or len(revision) != 12
+              or any(character not in "0123456789abcdef" for character in revision)
+              for revision in pending
+          ):
+              raise SystemExit("Server did not provide a valid pending-migration list.")
+          destructive = {"b8c9d0e1f2a3", "e1f2a3b4c5d6"}
+          if destructive.intersection(pending):
+              raise SystemExit("Destructive data-cleanup migrations are pending; preflight is blocked.")
+          if report.get("encryption_key_id") != expected_key_id:
+              raise SystemExit("Configured encryption key identity does not match the verified production key.")
+          if report.get("public_ipv6") != expected_ipv6:
+              raise SystemExit("Server preflight IPv6 does not match the configured public IPv6.")
+
+          for field, label in (
+              ("backup_verified_at", "backup"),
+              ("backup_restore_verified_at", "backup restore"),
+          ):
+              verified_at = datetime.fromisoformat(
+                  report[field].replace("Z", "+00:00")
+              )
+              if verified_at.tzinfo is None:
+                  raise SystemExit(f"{label.title()} verification timestamp must include a timezone.")
+              age = datetime.now(timezone.utc) - verified_at.astimezone(timezone.utc)
+              if age < timedelta(0) or age > timedelta(hours=24):
+                  raise SystemExit(f"Verified {label} must be no more than 24 hours old.")
+          print(
+              "Read-only server checks passed: backup/restore, candidate schema, "
+              "migration review, and encryption continuity."
+          )
+          print(f"Pending migrations reported: {len(pending)}; none were run.")
+          print("No release was uploaded, no migration was run, and no production configuration was changed.")
+          PY
+
+      - name: Record preflight-only result
+        if: success()
+        run: |
+          {
+            echo "## Production preflight passed"
+            echo
+            echo "This workflow is read-only. It does not publish a release, change services or DNS, or run Alembic migrations."
+            echo "Passing preflight is not authorization to deploy. A separately reviewed deployment workflow is still required."
+          } >> "$GITHUB_STEP_SUMMARY"
