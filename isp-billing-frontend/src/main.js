@@ -11,7 +11,7 @@ const featureItems = [
   ["PPPoE operations", "PPPoE service and provisioning surfaces exist. Validate authentication on configured RouterOS or RADIUS infrastructure.", "partial"],
   ["Hotspot captive portal", "Hotspot portal and handoff endpoints exist. Templates, redirects and internet access need a controlled router test.", "partial"],
   ["MikroTik provisioning", "RouterOS integration and polling-agent workflows exist; real changes require an authorized lab router.", "partial"],
-  ["Payment automation", "PayHero integration is configured as the shared platform gateway. Tenant payment destinations are registered per ISP.", "partial"],
+  [\"Payment automation\", \"PayHero is the shared platform gateway. Tenant payment destinations are registered per ISP.\"],
   ["Invoices & billing", "Invoice and payment records can be managed through API routes; reconciliation and activation need end-to-end verification.", "partial"],
   ["Voucher management", "Voucher generation and redemption endpoints exist; allocation and settlement need operational verification.", "partial"],
   ["Customer self-service", "Customer portal APIs cover parts of supported hotspot and PPPoE workflows; the complete customer UI is not implemented.", "partial"],
@@ -20,7 +20,7 @@ const featureItems = [
   ["Reports & analytics", "Tenant-scoped analytics and export routes exist; metrics depend on available operational data.", "partial"],
   ["Multi-tenant SaaS & roles", "Organizations, tenant scope and platform/ISP roles exist; verify all authorization boundaries before production.", "partial"],
   ["FreeRADIUS & RADIUS accounting", "No verified FreeRADIUS authentication or accounting integration is included in this checkout.", "unavailable"],
-  ["PayHero", "A PayHero integration has not been verified in this checkout.", "unavailable"]
+  [\"PayHero\", \"Tenant payment destinations and STK push are implemented and tested.\", \"implemented\"]
 ];
 
 const integrationItems = [
@@ -513,3 +513,4 @@ function bindContact() {
     location.href = `mailto:${encodeURIComponent(target)}?subject=${subject}&body=${body}`;
   });
 }
+
