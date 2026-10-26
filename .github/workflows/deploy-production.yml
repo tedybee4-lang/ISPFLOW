@@ -80,19 +80,40 @@ jobs:
           sudo systemctl restart ispflow-backend.service
           sudo systemctl restart ispflow-celery-worker.service
           sudo systemctl restart ispflow-celery-beat.service
+          HEALTH=0
           for attempt in $(seq 1 15); do
             if curl -fsS https://api.ispflow.co.ke/health >/dev/null; then
-              echo "HEALTH_OK"
-              exit 0
+              HEALTH=1
+              break
             fi
             sleep 2
           done
-          echo "HEALTH_CHECK_FAILED"
-          git reset --hard "$PREV_COMMIT"
-          sudo systemctl restart ispflow-backend.service
-          sudo systemctl restart ispflow-celery-worker.service
-          sudo systemctl restart ispflow-celery-beat.service
-          exit 1
+          if [ "$HEALTH" != "1" ]; then
+            echo "HEALTH_CHECK_FAILED"
+            exit 1
+          fi
+          echo "HEALTH_OK"
+          REMOTE
+
+      - name: Roll back failed deployment
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/ispflow_deploy_key -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -p "${{ vars.VPS_SSH_PORT }}" "${{ vars.VPS_DEPLOY_USER }}@${{ vars.VPS_SSH_HOST }}" <<'REMOTE'
+          set -euo pipefail
+          if [ -f /tmp/ispflow-previous-commit ]; then
+            PREV_COMMIT="$(cat /tmp/ispflow-previous-commit)"
+            cd /opt/ispflow/src
+            git reset --hard "$PREV_COMMIT"
+            cd /opt/ispflow/src/isp-billing-backend-master
+            /opt/ispflow/venv/bin/python -m alembic current >/dev/null 2>&1 || true
+            sudo systemctl restart ispflow-backend.service
+            sudo systemctl restart ispflow-celery-worker.service
+            sudo systemctl restart ispflow-celery-beat.service
+            echo "ROLLBACK_DONE"
+          else
+            echo "NO_PREVIOUS_COMMIT"
+            exit 1
+          fi
           REMOTE
 
       - name: Verify deployment
