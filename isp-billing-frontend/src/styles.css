@@ -274,6 +274,19 @@
 .workspace-role-select,.workspace-ticket-filter select{max-width:145px;border:1px solid #3a4552;border-radius:5px;background:#171e28;padding:6px 7px;color:#dce2e9;font-size:9px}
 .workspace-form-grid textarea{width:100%;resize:vertical;border:1px solid #3a4552;border-radius:5px;background:#111720;padding:8px;color:#e7ebf0;font-size:10px}
 .workspace-form-wide{grid-column:1/-1}
+.workspace-settings-stack{display:grid;gap:12px}
+.workspace-settings-stack>.workspace-form{margin:0}
+.workspace-settings-stack>.workspace-form h3{margin-top:0}
+.workspace-form-grid .workspace-setting-toggle{display:flex;align-items:center;gap:8px;min-height:34px}
+.workspace-form-grid .workspace-setting-toggle input{width:auto;min-height:0}
+.workspace-form-grid .workspace-setting-toggle small{flex-basis:100%}
+.workspace-inline-field{display:flex;align-items:center;gap:8px;color:#718078;font-size:10px;font-weight:650}
+.workspace-inline-field select{min-height:34px;max-width:320px;border:1px solid #3a4552;border-radius:5px;background:#171e28;padding:6px 9px;color:#e7ebf0;font-size:10px}
+.workspace-json{max-height:65vh;overflow:auto;border:1px solid #343d49;border-radius:8px;background:#171e28;padding:14px;color:#dbe1e8;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}
+.workspace-voucher-batch{margin:16px 0;padding:16px}
+.workspace-voucher-batch .workspace-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.workspace-voucher-batch .workspace-card-heading h2{margin:4px 0;color:#edf0f4;font-size:17px}
+.workspace-voucher-batch .workspace-note{margin:10px 0}
 .workspace-ticket-filter{max-width:720px}
 .workspace-form{margin:0 0 15px;border:1px solid #343d49;border-radius:8px;background:#171e28;padding:15px}
 .workspace-form-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
@@ -302,4 +315,3 @@
 .workspace-portal-preview.workspace-portal-mobile{width:min(390px,100%);margin:0 auto}
 .workspace-form-wide{grid-column:1/-1}
 @media(max-width:760px){.workspace-portal-preview{height:520px}}
-

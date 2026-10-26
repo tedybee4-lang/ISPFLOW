@@ -9,11 +9,15 @@ const tabs = [
   ["gateways", "Payment gateways", "admin"],
   ["routers", "Routers", "staff"],
   ["portal", "Captive portal", "tenant-admin"],
+  ["bindings", "Hotspot bindings", "tenant-admin"],
   ["usage", "Usage & sessions", "staff"],
   ["vouchers", "Vouchers", "staff"],
+  ["notifications", "Notifications", "staff"],
   ["tickets", "Support tickets", "staff"],
   ["reports", "Reports & exports", "admin"],
-  ["staff", "Staff & settings", "admin"]
+  ["staff", "Staff", "admin"],
+  ["settings", "ISP settings", "tenant-admin"],
+  ["integrity", "Data integrity", "platform"]
 ];
 
 function escapeHtml(value = "") {
@@ -52,6 +56,28 @@ function amountCell(value) {
 
 function statusCell(value) {
   return `<span class="workspace-status">${escapeHtml(String(value ?? "unknown").replaceAll("_", " "))}</span>`;
+}
+
+function settingsFieldMarkup(field, value) {
+  const name = escapeHtml(field.name);
+  const label = escapeHtml(field.label);
+  const help = field.help ? `<small>${escapeHtml(field.help)}</small>` : "";
+  if (field.type === "boolean") {
+    return `<label class="workspace-setting-toggle"><input type="checkbox" name="${name}" ${value ? "checked" : ""}><span>${label}</span>${help}</label>`;
+  }
+  if (field.type === "textarea") {
+    return `<label class="${field.wide ? "workspace-form-wide" : ""}">${label}<textarea name="${name}" maxlength="${field.maxLength || 5000}" rows="${field.rows || 3}">${escapeHtml(value ?? "")}</textarea>${help}</label>`;
+  }
+  return `<label class="${field.wide ? "workspace-form-wide" : ""}">${label}<input name="${name}" type="${field.type || "text"}" value="${escapeHtml(value ?? "")}"${field.min !== undefined ? ` min="${field.min}"` : ""}${field.minLength ? ` minlength="${field.minLength}"` : ""}${field.max !== undefined ? ` max="${field.max}"` : ""}${field.maxLength ? ` maxlength="${field.maxLength}"` : ""}>${help}</label>`;
+}
+
+function settingsFormMarkup(title, endpoint, values, fields) {
+  return `<form class="workspace-form workspace-settings-form" data-settings-endpoint="${escapeHtml(endpoint)}"><h3>${escapeHtml(title)}</h3><div class="workspace-form-grid">${fields.map((field) => settingsFieldMarkup(field, values[field.name])).join("")}</div><div class="workspace-form-feedback" role="alert" hidden></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Save ${escapeHtml(title.toLowerCase())}</button></div></form>`;
+}
+
+function voucherFormMarkup(plans) {
+  const activePlans = plans.filter((plan) => String(plan.status || "").toLowerCase() === "active");
+  return `<form class="workspace-form" id="workspace-voucher-form"><h3>Generate a voucher batch</h3><div class="workspace-form-grid"><label>Package<select name="plan_id" required>${activePlans.map((plan) => `<option value="${escapeHtml(plan.id)}">${escapeHtml(plan.name)} · ${escapeHtml(plan.currency || "KES")} ${amountCell(plan.price)}</option>`).join("")}</select></label><label>Number of vouchers<input name="count" type="number" min="1" max="500" value="10" required></label><label>Code format<input name="code_format" maxlength="50" value="XXXX-XXXX-XXXX" required></label><label>Expire unused codes after (days)<input name="expires_in_days" type="number" min="1" max="3650" placeholder="No pre-use expiry"></label></div><p class="workspace-note">Generated voucher credentials are shown once after creation. Store or print them securely.</p><div class="workspace-form-feedback" role="alert" hidden></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit" ${activePlans.length ? "" : "disabled"}>Generate vouchers</button><button class="workspace-secondary-button" type="button" data-voucher-cancel>Cancel</button></div>${activePlans.length ? "" : `<div class="workspace-error" role="alert">Create or activate a package before generating vouchers.</div>`}</form>`;
 }
 
 function planFormMarkup(plan = {}) {
@@ -225,7 +251,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
   );
   const organization = organizations.find((item) => item.slug === selectedSlug);
   const name = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.username || user.email || "Operator";
-  const nav = (group, entries) => entries.length ? `<div class="workspace-nav-group"><span>${group}</span>${entries.map(([id, label]) => `<button type="button" class="workspace-tab ${id === "overview" ? "active" : ""}" data-workspace-tab="${id}" aria-current="${id === "overview" ? "page" : "false"}"><i aria-hidden="true">${({ overview: "◈", organizations: "▦", leads: "◇", subscribers: "◎", plans: "◫", subscriptions: "↗", billing: "＄", routers: "⌁", portal: "◉", usage: "▥", vouchers: "▤", tickets: "◌", reports: "▧", staff: "⚙" })[id]}</i><span>${label}</span></button>`).join("")}</div>` : "";
+  const nav = (group, entries) => entries.length ? `<div class="workspace-nav-group"><span>${group}</span>${entries.map(([id, label]) => `<button type="button" class="workspace-tab ${id === "overview" ? "active" : ""}" data-workspace-tab="${id}" aria-current="${id === "overview" ? "page" : "false"}"><i aria-hidden="true">${({ overview: "◈", organizations: "▦", leads: "◇", subscribers: "◎", plans: "◫", subscriptions: "↗", billing: "＄", gateways: "◈", routers: "⌁", portal: "◉", bindings: "⌑", usage: "▥", vouchers: "▤", notifications: "◌", tickets: "◌", reports: "▧", staff: "⚙", settings: "⚙", integrity: "✓" })[id]}</i><span>${label}</span></button>`).join("")}</div>` : "";
   return `<div class="workspace-shell ${isMobile ? "sidebar-collapsed" : ""}">
       <aside class="workspace-sidebar">
         <a class="workspace-brand" href="/app" aria-label="ISPFlow workspace"><span class="workspace-brand-mark">I</span><span>ispflow<small>NETWORK CONSOLE</small></span></a>
@@ -234,10 +260,11 @@ function workspaceMarkup(user, organizations, selectedSlug) {
           ${nav("OVERVIEW", tabsToShow.filter(([id]) => id === "overview"))}
           ${nav("PLATFORM", tabsToShow.filter(([id]) => id === "organizations"))}
           ${nav("CUSTOMERS", tabsToShow.filter(([id]) => ["leads", "subscribers", "plans", "subscriptions"].includes(id)))}
-          ${nav("NETWORK", tabsToShow.filter(([id]) => ["routers", "portal", "usage", "vouchers"].includes(id)))}
+          ${nav("NETWORK", tabsToShow.filter(([id]) => ["routers", "portal", "bindings", "usage", "vouchers"].includes(id)))}
           ${nav("PAYMENTS & BILLING", tabsToShow.filter(([id]) => ["billing", "gateways"].includes(id)))}
-          ${nav("OPERATIONS", tabsToShow.filter(([id]) => ["tickets", "reports"].includes(id)))}
-          ${nav("SETTINGS", tabsToShow.filter(([id]) => id === "staff"))}
+          ${nav("OPERATIONS", tabsToShow.filter(([id]) => ["notifications", "tickets", "reports"].includes(id)))}
+          ${nav("SETTINGS", tabsToShow.filter(([id]) => ["staff", "settings"].includes(id)))}
+          ${nav("PLATFORM TOOLS", tabsToShow.filter(([id]) => id === "integrity"))}
         </nav>
         <div class="workspace-sidebar-bottom"><span class="workspace-avatar">${escapeHtml(name.slice(0, 1).toUpperCase())}</span><div class="workspace-user"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(role.replaceAll("_", " ") || "user")}</small></div><button class="workspace-signout" id="logout-button" type="button" aria-label="Sign out">↗</button></div>
       </aside>
@@ -267,6 +294,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     planSearch: "",
     subscriberPage: 1,
     subscriberSearch: "",
+    subscriberNotice: "",
     editingCustomer: null,
     creatingInvoice: false,
     invoiceNotice: "",
@@ -289,7 +317,14 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     portalNotice: "",
     paymentChannels: [],
     creatingChannel: false,
-    channelNotice: ""
+    channelNotice: "",
+    creatingVouchers: false,
+    voucherNotice: "",
+    voucherBatch: null,
+    notificationNotice: "",
+    bindingRouterId: "",
+    bindingNotice: "",
+    settingsNotice: ""
   };
 
   const request = (path, options = {}) => {
@@ -387,7 +422,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
       panel.innerHTML = renderError("Organization access", state.organizationError);
       return;
     }
-    if (isOwner && !state.selectedSlug && state.activeTab !== "organizations") {
+    if (isOwner && !state.selectedSlug && !["organizations", "integrity"].includes(state.activeTab)) {
       panel.innerHTML = `<div class="workspace-empty"><h2>Select an ISP organization</h2><p>Choose an organization above. Tenant data is not loaded until an explicit organization is selected.</p>${state.organizations.length ? "" : "No organizations are available to this platform account."}</div>`;
       return;
     }
@@ -565,7 +600,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           { label: "Username", key: "username" }, { label: "Email", key: "email" }, { label: "Phone", key: "phone" },
           { label: "Status", render: (item) => statusCell(item.status || (item.is_active ? "active" : "inactive")) },
           { label: "Created", render: (item) => dateCell(item.created_at) },
-          ...(isAdmin ? [{ label: "Actions", render: (item) => `<button type="button" class="workspace-row-action" data-customer-edit="${escapeHtml(item.id)}">Edit</button><button type="button" class="workspace-row-action workspace-row-danger" data-customer-delete="${escapeHtml(item.id)}">Deactivate</button>` }] : [])
+          ...(isAdmin ? [{ label: "Actions", render: (item) => `<button type="button" class="workspace-row-action" data-customer-edit="${escapeHtml(item.id)}">Edit</button><button type="button" class="workspace-row-action ${item.is_active ? "workspace-row-danger" : ""}" data-customer-status="${escapeHtml(item.id)}" data-active="${item.is_active ? "true" : "false"}">${item.is_active ? "Deactivate" : "Activate"}</button>` }] : [])
         ], users, "No subscriber records matched this search.")}
         <div class="workspace-pagination"><span>Page ${escapeHtml(result.page ?? state.subscriberPage)} of ${escapeHtml(pages)} · ${escapeHtml(result.total ?? users.length)} subscribers</span><div><button type="button" class="workspace-secondary-button" data-subscriber-page="${Math.max(1, state.subscriberPage - 1)}" ${state.subscriberPage <= 1 ? "disabled" : ""}>Previous</button><button type="button" class="workspace-secondary-button" data-subscriber-page="${Math.min(pages, state.subscriberPage + 1)}" ${state.subscriberPage >= pages ? "disabled" : ""}>Next</button></div></div>`;
         panel.querySelector("#workspace-subscriber-search")?.addEventListener("submit", (event) => {
@@ -591,19 +626,20 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           state.subscriberNotice = "";
           loadSection();
         }));
-        panel.querySelectorAll("[data-customer-delete]").forEach((button) => button.addEventListener("click", async () => {
-          if (!window.confirm("Deactivate this customer account? Its record and billing history will be retained.")) return;
+        panel.querySelectorAll("[data-customer-status]").forEach((button) => button.addEventListener("click", async () => {
+          const isActive = button.dataset.active === "true";
+          if (!window.confirm(`${isActive ? "Deactivate" : "Activate"} this customer account?`)) return;
           button.disabled = true;
           try {
-            await request(`/api/v1/users/${encodeURIComponent(button.dataset.customerDelete)}`, { method: "DELETE" });
-            state.subscriberNotice = "Customer account deactivated. Existing records were retained.";
+            await request(`/api/v1/users/${encodeURIComponent(button.dataset.customerStatus)}/${isActive ? "deactivate" : "activate"}`, { method: "PATCH" });
+            state.subscriberNotice = `Customer account ${isActive ? "deactivated" : "activated"}.`;
             await loadSection();
           } catch (error) {
             button.disabled = false;
             const alert = document.createElement("div");
             alert.className = "workspace-error";
             alert.setAttribute("role", "alert");
-            alert.textContent = `Customer could not be deactivated: ${error.message || String(error)}`;
+            alert.textContent = `Customer status could not be changed: ${error.message || String(error)}`;
             panel.prepend(alert);
           }
         }));
@@ -761,11 +797,16 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
         const customers = formDataResult ? listOf(formDataResult[0], "users") : [];
         const plans = formDataResult ? listOf(formDataResult[1], "plans") : [];
         const routers = formDataResult ? listOf(formDataResult[2], "items") : [];
-        panel.innerHTML = `${sectionHeading("Subscriptions & access types", "Assignments are persisted as pending. Activation is a separate, service-impacting operation and is deliberately not performed here.")}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-subscription-create">Assign package</button>` : ""}</div>${state.subscriptionNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.subscriptionNotice)}</div>` : ""}${isAdmin && state.creatingSubscription ? subscriptionFormMarkup(customers, plans, routers) : ""}${table([
+        panel.innerHTML = `${sectionHeading("Subscriptions & access types", "Assignments start pending. Payment verification controls activation; administrators can suspend or cancel existing access here.")}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-subscription-create">Assign package</button>` : ""}</div>${state.subscriptionNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.subscriptionNotice)}</div>` : ""}${isAdmin && state.creatingSubscription ? subscriptionFormMarkup(customers, plans, routers) : ""}${table([
           { label: "Username", key: "username" }, { label: "Package", key: "plan_name" }, { label: "Router", key: "router_name" },
           { label: "Access type", key: "subscription_type" }, { label: "Status", render: (item) => statusCell(item.status) },
           { label: "Router synced", render: (item) => item.is_router_synced ? "Yes" : "No" },
-          { label: "Ends", render: (item) => dateCell(item.end_date) }
+          { label: "Ends", render: (item) => dateCell(item.end_date) },
+          ...(isAdmin ? [{ label: "Actions", render: (item) => {
+            const status = String(item.status || "").toLowerCase();
+            if (["cancelled"].includes(status)) return "—";
+            return `${status === "active" ? `<button type="button" class="workspace-row-action" data-subscription-action="suspend" data-subscription-id="${escapeHtml(item.id)}">Suspend</button>` : ""}<button type="button" class="workspace-row-action workspace-row-danger" data-subscription-action="cancel" data-subscription-id="${escapeHtml(item.id)}">Cancel</button>`;
+          } }] : [])
         ], subscriptions, "No subscriptions were returned.")}`;
         panel.querySelector("#workspace-subscription-create")?.addEventListener("click", () => {
           state.creatingSubscription = true;
@@ -774,6 +815,32 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
         panel.querySelectorAll("[data-subscription-cancel]").forEach((button) => button.addEventListener("click", () => {
           state.creatingSubscription = false;
           loadSection();
+        }));
+        panel.querySelectorAll("[data-subscription-action]").forEach((button) => button.addEventListener("click", async () => {
+          const action = button.dataset.subscriptionAction;
+          const id = button.dataset.subscriptionId;
+          const verb = action === "suspend" ? "Suspend" : "Cancel";
+          if (!window.confirm(`${verb} this subscription?`)) return;
+          button.disabled = true;
+          try {
+            const body = {
+              subscription_id: Number(id),
+              reason: `Action requested by ISP administrator from workspace (${action}).`
+            };
+            await request(`/api/v1/subscriptions/${encodeURIComponent(id)}/${action}`, {
+              method: "PATCH",
+              body: JSON.stringify(body)
+            });
+            state.subscriptionNotice = `Subscription ${verb.toLowerCase()} request completed.`;
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Subscription could not be ${action === "suspend" ? "suspended" : "cancelled"}: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
         }));
         panel.querySelector("#workspace-subscription-form")?.addEventListener("submit", async (event) => {
           event.preventDefault();
@@ -1048,6 +1115,94 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
         return;
       }
 
+      if (state.activeTab === "bindings") {
+        const routersResult = await request("/api/v1/routers/?page=1&size=100");
+        const routers = listOf(routersResult, "items");
+        if (!state.bindingRouterId || !routers.some((router) => String(router.id) === state.bindingRouterId)) {
+          state.bindingRouterId = String(routers[0]?.id || "");
+        }
+        const bindingResult = state.bindingRouterId
+          ? await request(`/api/v1/ip-bindings/${encodeURIComponent(state.bindingRouterId)}`)
+          : [];
+        const bindings = Array.isArray(bindingResult) ? bindingResult : listOf(bindingResult, "bindings");
+        panel.innerHTML = `${sectionHeading("Hotspot IP bindings", "Manage live MikroTik IP/MAC bindings on a router belonging to this ISP. Create, disable, and delete actions are applied directly to that router.")}${state.bindingNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.bindingNotice)}</div>` : ""}<div class="workspace-list-toolbar"><label class="workspace-inline-field">Router<select id="workspace-binding-router" aria-label="Choose router">${routers.map((router) => `<option value="${escapeHtml(router.id)}" ${String(router.id) === state.bindingRouterId ? "selected" : ""}>${escapeHtml(router.name || `Router ${router.id}`)} · ${escapeHtml(router.ip_address || "unknown address")}</option>`).join("")}</select></label></div>${routers.length ? `<form class="workspace-form" id="workspace-binding-form"><h3>Add an IP/MAC binding</h3><div class="workspace-form-grid"><label>IP address<input name="address" maxlength="45" inputmode="decimal"></label><label>MAC address<input name="mac_address" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><label>Binding type<select name="type"><option value="regular">Regular</option><option value="bypassed">Bypassed</option><option value="blocked">Blocked</option></select></label><label>Comment<input name="comment" maxlength="200"></label></div><div class="workspace-form-feedback" role="alert" hidden></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Apply binding to router</button></div></form>${table([{ label: "IP address", key: "address" }, { label: "MAC address", key: "mac_address" }, { label: "Type", render: (item) => statusCell(item.type) }, { label: "Server", key: "server" }, { label: "Comment", key: "comment" }, { label: "Disabled", render: (item) => item.disabled ? "Yes" : "No" }, { label: "Actions", render: (item) => `<button type="button" class="workspace-row-action" data-binding-toggle="${escapeHtml(item.id)}" data-disabled="${item.disabled ? "true" : "false"}">${item.disabled ? "Enable" : "Disable"}</button><button type="button" class="workspace-row-action workspace-row-danger" data-binding-delete="${escapeHtml(item.id)}">Delete</button>` }], bindings, "No IP bindings were returned for this router.")}` : `<div class="workspace-empty"><h3>No tenant routers available</h3><p>Add a router and verify its connection before managing bindings.</p></div>`}`;
+        panel.querySelector("#workspace-binding-router")?.addEventListener("change", (event) => {
+          state.bindingRouterId = event.currentTarget.value;
+          state.bindingNotice = "";
+          loadSection();
+        });
+        panel.querySelector("#workspace-binding-form")?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const submit = form.querySelector('button[type="submit"]');
+          const feedback = form.querySelector(".workspace-form-feedback");
+          const values = Object.fromEntries(new FormData(form).entries());
+          const body = {
+            address: String(values.address || "").trim() || null,
+            mac_address: String(values.mac_address || "").trim() || null,
+            type: values.type,
+            comment: String(values.comment || "").trim() || null
+          };
+          if (!body.address && !body.mac_address) {
+            feedback.textContent = "Enter an IP address, a MAC address, or both.";
+            feedback.hidden = false;
+            return;
+          }
+          if (!window.confirm("Apply this binding directly to the selected router now?")) return;
+          submit.disabled = true;
+          feedback.hidden = true;
+          try {
+            await request(`/api/v1/ip-bindings/${encodeURIComponent(state.bindingRouterId)}`, {
+              method: "POST",
+              body: JSON.stringify(body)
+            });
+            state.bindingNotice = "Binding applied to the router.";
+            await loadSection();
+          } catch (error) {
+            feedback.textContent = error.message || String(error);
+            feedback.hidden = false;
+            submit.disabled = false;
+          }
+        });
+        panel.querySelectorAll("[data-binding-toggle]").forEach((button) => button.addEventListener("click", async () => {
+          const disabled = button.dataset.disabled === "true";
+          if (!window.confirm(`${disabled ? "Enable" : "Disable"} this router binding?`)) return;
+          button.disabled = true;
+          try {
+            await request(`/api/v1/ip-bindings/${encodeURIComponent(state.bindingRouterId)}/${encodeURIComponent(button.dataset.bindingToggle)}`, {
+              method: "PATCH",
+              body: JSON.stringify({ disabled: !disabled })
+            });
+            state.bindingNotice = `Binding ${disabled ? "enabled" : "disabled"} on the router.`;
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Binding could not be updated: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        }));
+        panel.querySelectorAll("[data-binding-delete]").forEach((button) => button.addEventListener("click", async () => {
+          if (!window.confirm("Permanently remove this binding from the router?")) return;
+          button.disabled = true;
+          try {
+            await request(`/api/v1/ip-bindings/${encodeURIComponent(state.bindingRouterId)}/${encodeURIComponent(button.dataset.bindingDelete)}`, { method: "DELETE" });
+            state.bindingNotice = "Binding removed from the router.";
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Binding could not be removed: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        }));
+        return;
+      }
+
       if (state.activeTab === "usage") {
         const response = await request("/api/v1/reports/analytics/dashboard-charts");
         const charts = payloadOf(response);
@@ -1061,13 +1216,128 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
       }
 
       if (state.activeTab === "vouchers") {
-        const response = await request("/api/v1/vouchers/?page=1&size=100");
-        panel.innerHTML = tablePanel("Voucher inventory", "Voucher access codes are masked. This dashboard does not create, redeem or disable vouchers.", [
+        const [voucherResult, statsResult, planResult] = await Promise.allSettled([
+          request("/api/v1/vouchers/?page=1&size=100"),
+          request("/api/v1/vouchers/stats"),
+          state.creatingVouchers ? request("/api/v1/plans/?page=1&size=100") : Promise.resolve(null)
+        ]);
+        if (voucherResult.status === "rejected") throw voucherResult.reason;
+        const vouchers = listOf(voucherResult.value, "vouchers");
+        const stats = statsResult.status === "fulfilled" ? payloadOf(statsResult.value) : {};
+        const plans = planResult.status === "fulfilled" ? listOf(planResult.value, "plans") : [];
+        const batch = state.voucherBatch?.vouchers;
+        panel.innerHTML = `${sectionHeading("Voucher inventory", "Generate, review, disable, and re-enable voucher codes for active tenant packages.")}${state.voucherNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.voucherNotice)}</div>` : ""}<div class="workspace-metrics"><div class="workspace-metric"><span>Total vouchers</span><strong>${escapeHtml(stats.total_vouchers ?? "—")}</strong></div><div class="workspace-metric"><span>Active</span><strong>${escapeHtml(stats.active_vouchers ?? "—")}</strong></div><div class="workspace-metric"><span>Used</span><strong>${escapeHtml(stats.used_vouchers ?? "—")}</strong></div><div class="workspace-metric"><span>Expired</span><strong>${escapeHtml(stats.expired_vouchers ?? "—")}</strong></div></div><div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-voucher-create">Generate vouchers</button>` : ""}</div>${statsResult.status === "rejected" ? `<div class="workspace-error" role="alert">Voucher statistics unavailable: ${escapeHtml(statsResult.reason.message || "request failed")}</div>` : ""}${state.creatingVouchers ? planResult.status === "rejected" ? `<div class="workspace-error" role="alert">Packages unavailable: ${escapeHtml(planResult.reason.message || "request failed")}</div>` : voucherFormMarkup(plans) : ""}${batch ? `<section class="workspace-dashboard-card workspace-voucher-batch"><div class="workspace-card-heading"><div><span class="workspace-kicker">NEW VOUCHER BATCH</span><h2>${escapeHtml(state.voucherBatch.count)} codes · batch ${escapeHtml(state.voucherBatch.batch_id)}</h2></div><button type="button" class="workspace-inline-link" data-voucher-batch-dismiss>Dismiss</button></div><p class="workspace-note">Save these credentials now. Voucher passwords are not displayed in the inventory list.</p>${table([{ label: "Voucher", key: "code" }, { label: "Username", key: "hotspot_username" }, { label: "Password", key: "hotspot_password" }], batch, "No vouchers returned.")}</section>` : ""}${table([
           { label: "Voucher", render: (item) => escapeHtml(item.code ? `****${String(item.code).slice(-4)}` : "—") },
           { label: "Package", key: "plan_name" }, { label: "Status", render: (item) => statusCell(item.status) },
           { label: "Bandwidth", key: "bandwidth_limit" }, { label: "Used", render: (item) => dateCell(item.used_at) },
-          { label: "Expires", render: (item) => dateCell(item.expires_at) }
-        ], listOf(response, "vouchers"), "No vouchers were returned.");
+          { label: "Expires", render: (item) => dateCell(item.expires_at) },
+          ...(isAdmin ? [{ label: "Actions", render: (item) => {
+            const status = String(item.status || "").toLowerCase();
+            if (!["active", "disabled"].includes(status)) return "—";
+            return `<button type="button" class="workspace-row-action ${status === "active" ? "workspace-row-danger" : ""}" data-voucher-status="${escapeHtml(item.id)}" data-status="${status}">${status === "active" ? "Disable" : "Re-enable"}</button>`;
+          } }] : [])
+        ], vouchers, "No vouchers were returned.")}`;
+        panel.querySelector("#workspace-voucher-create")?.addEventListener("click", () => {
+          state.creatingVouchers = true;
+          state.voucherNotice = "";
+          loadSection();
+        });
+        panel.querySelectorAll("[data-voucher-cancel]").forEach((button) => button.addEventListener("click", () => {
+          state.creatingVouchers = false;
+          loadSection();
+        }));
+        panel.querySelector("[data-voucher-batch-dismiss]")?.addEventListener("click", () => {
+          state.voucherBatch = null;
+          loadSection();
+        });
+        panel.querySelectorAll("[data-voucher-status]").forEach((button) => button.addEventListener("click", async () => {
+          const nextStatus = button.dataset.status === "active" ? "disabled" : "active";
+          if (!window.confirm(`${nextStatus === "disabled" ? "Disable" : "Re-enable"} this voucher?`)) return;
+          button.disabled = true;
+          try {
+            await request(`/api/v1/vouchers/${encodeURIComponent(button.dataset.voucherStatus)}`, {
+              method: "PATCH",
+              body: JSON.stringify({ status: nextStatus })
+            });
+            state.voucherNotice = `Voucher ${nextStatus === "disabled" ? "disabled" : "re-enabled"}.`;
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Voucher status could not be changed: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        }));
+        panel.querySelector("#workspace-voucher-form")?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const submit = form.querySelector('button[type="submit"]');
+          const feedback = form.querySelector(".workspace-form-feedback");
+          const raw = Object.fromEntries(new FormData(form).entries());
+          const body = {
+            plan_id: Number(raw.plan_id),
+            count: Number(raw.count),
+            code_format: String(raw.code_format).trim(),
+            expires_in_days: raw.expires_in_days ? Number(raw.expires_in_days) : null
+          };
+          submit.disabled = true;
+          feedback.hidden = true;
+          try {
+            state.voucherBatch = await request("/api/v1/vouchers/generate", {
+              method: "POST",
+              body: JSON.stringify(body)
+            });
+            state.creatingVouchers = false;
+            state.voucherNotice = `${state.voucherBatch.count} voucher credentials generated. Store them securely.`;
+            await loadSection();
+          } catch (error) {
+            feedback.textContent = error.message || String(error);
+            feedback.hidden = false;
+            submit.disabled = false;
+          }
+        });
+        return;
+      }
+
+      if (state.activeTab === "notifications") {
+        const result = await request("/api/v1/notifications/?page=1&size=50");
+        const payload = payloadOf(result);
+        const notifications = listOf(result, "notifications");
+        panel.innerHTML = `${sectionHeading("Your notifications", "This inbox is scoped to your signed-in user account. Delivery settings are managed separately in ISP settings.")}${state.notificationNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.notificationNotice)}</div>` : ""}<div class="workspace-metrics"><div class="workspace-metric"><span>Notifications</span><strong>${escapeHtml(payload.total ?? notifications.length)}</strong></div><div class="workspace-metric"><span>Unread on this page</span><strong>${notifications.filter((item) => !item.is_read).length}</strong></div></div>${table([{ label: "Title", key: "title" }, { label: "Message", key: "message" }, { label: "Type", render: (item) => statusCell(item.notification_type) }, { label: "Priority", render: (item) => statusCell(item.priority) }, { label: "Received", render: (item) => dateCell(item.created_at) }, { label: "Status", render: (item) => item.is_read ? "Read" : "Unread" }, { label: "Actions", render: (item) => `<button type="button" class="workspace-row-action" data-notification-read="${escapeHtml(item.id)}" data-read="${item.is_read ? "true" : "false"}">${item.is_read ? "Mark unread" : "Mark read"}</button><button type="button" class="workspace-row-action workspace-row-danger" data-notification-delete="${escapeHtml(item.id)}">Delete</button>` }], notifications, "No notifications are available for this account.")}<div class="workspace-pagination"><span>Page ${escapeHtml(payload.page ?? 1)} · ${escapeHtml(payload.total ?? notifications.length)} notifications</span></div>`;
+        panel.querySelectorAll("[data-notification-read]").forEach((button) => button.addEventListener("click", async () => {
+          const action = button.dataset.read === "true" ? "unread" : "read";
+          button.disabled = true;
+          try {
+            await request(`/api/v1/notifications/${encodeURIComponent(button.dataset.notificationRead)}/${action}`, { method: "PATCH" });
+            state.notificationNotice = `Notification marked ${action}.`;
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Notification could not be updated: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        }));
+        panel.querySelectorAll("[data-notification-delete]").forEach((button) => button.addEventListener("click", async () => {
+          if (!window.confirm("Delete this notification from your inbox?")) return;
+          button.disabled = true;
+          try {
+            await request(`/api/v1/notifications/${encodeURIComponent(button.dataset.notificationDelete)}`, { method: "DELETE" });
+            state.notificationNotice = "Notification deleted.";
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Notification could not be deleted: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        }));
         return;
       }
 
@@ -1296,6 +1566,131 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           }
         });
         panel.querySelectorAll("[data-export]").forEach((button) => button.addEventListener("click", () => exportCsv(button.dataset.export, button)));
+        return;
+      }
+
+      if (state.activeTab === "integrity") {
+        if (!isOwner) {
+          panel.innerHTML = renderError("Data integrity", new Error("This platform-level check is not available to ISP tenants."));
+          return;
+        }
+        const result = await request("/api/v1/admin/data-integrity/check");
+        panel.innerHTML = `${sectionHeading("Platform data integrity", "This check is global and platform-owner-only. It is read-only; tenant administrators cannot access it.")}${state.integrityNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.integrityNotice)}</div>` : ""}<div class="workspace-form-actions"><button class="workspace-secondary-button" type="button" id="workspace-integrity-log">Log reported issues</button></div><pre class="workspace-json">${escapeHtml(JSON.stringify(payloadOf(result), null, 2))}</pre>`;
+        panel.querySelector("#workspace-integrity-log")?.addEventListener("click", async (event) => {
+          if (!window.confirm("Write the current global integrity findings to the system log?")) return;
+          const button = event.currentTarget;
+          button.disabled = true;
+          try {
+            const logged = await request("/api/v1/admin/data-integrity/log-issues", { method: "POST" });
+            state.integrityNotice = payloadOf(logged).message || "Integrity findings logged.";
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Integrity findings could not be logged: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        });
+        return;
+      }
+
+      if (state.activeTab === "settings") {
+        const endpoints = ["organization", "business", "hotspot", "pppoe", "notifications"];
+        const results = [];
+        for (const endpoint of endpoints) {
+          try {
+            results.push({ status: "fulfilled", value: await request(`/api/v1/tenant/settings/${endpoint}`) });
+          } catch (reason) {
+            results.push({ status: "rejected", reason });
+          }
+        }
+        const settingsFields = {
+          organization: [
+            { name: "name", label: "ISP name", maxLength: 200 },
+            { name: "phone", label: "Contact phone", maxLength: 20 },
+            { name: "address", label: "Address", maxLength: 500, wide: true },
+            { name: "timezone", label: "Timezone (IANA)", maxLength: 64, help: "Example: Africa/Nairobi." }
+          ],
+          business: [
+            { name: "currency", label: "Currency", minLength: 3, maxLength: 3 },
+            { name: "tax_rate", label: "Tax rate (%)", type: "number", min: 0, max: 100 },
+            { name: "invoice_prefix", label: "Invoice prefix", maxLength: 10 },
+            { name: "invoice_notes", label: "Invoice notes", type: "textarea", wide: true },
+            { name: "terms_and_conditions", label: "Terms and conditions", type: "textarea", wide: true, rows: 5 },
+            { name: "privacy_policy", label: "Privacy policy", type: "textarea", wide: true, rows: 5 }
+          ],
+          hotspot: [
+            { name: "username_prefix", label: "Username prefix", maxLength: 10 },
+            { name: "hotspot_template", label: "Portal template", maxLength: 50 },
+            { name: "prune_inactive_users_days", label: "Prune inactive users after days", type: "number", min: 1, max: 365 },
+            { name: "redirect_url", label: "After-login redirect URL", type: "url", maxLength: 500 },
+            { name: "voucher_format", label: "Voucher format", maxLength: 50 },
+            { name: "voucher_length", label: "Voucher length", type: "number", min: 4, max: 20 },
+            { name: "session_timeout_minutes", label: "Session timeout (minutes)", type: "number", min: 1, max: 1440 },
+            { name: "show_packages_on_portal", label: "Show packages on portal", type: "boolean" },
+            { name: "allow_guest_purchases", label: "Allow guest purchases", type: "boolean" },
+            { name: "auto_disconnect_expired", label: "Disconnect expired accounts", type: "boolean" }
+          ],
+          pppoe: [
+            { name: "require_username_approval", label: "Require username approval", type: "boolean" },
+            { name: "allow_self_registration", label: "Allow self-registration", type: "boolean" },
+            { name: "session_timeout_minutes", label: "Session timeout (minutes)", type: "number", min: 1, max: 1440 },
+            { name: "auto_disconnect_expired", label: "Disconnect expired accounts", type: "boolean" },
+            { name: "auto_suspend_days", label: "Auto-suspend after days", type: "number", min: 1, max: 365 }
+          ],
+          notifications: [
+            { name: "enable_mikrotik_status_notifications", label: "Router status notifications", type: "boolean" },
+            { name: "send_hotspot_payment_confirmation", label: "Hotspot payment confirmations", type: "boolean" },
+            { name: "send_pppoe_payment_confirmation", label: "PPPoE payment confirmations", type: "boolean" },
+            { name: "send_hotspot_expiry_notification", label: "Hotspot expiry notifications", type: "boolean" },
+            { name: "send_pppoe_expiry_notification", label: "PPPoE expiry notifications", type: "boolean" },
+            { name: "send_hotspot_expiry_reminder", label: "Hotspot expiry reminders", type: "boolean" },
+            { name: "send_pppoe_expiry_reminder", label: "PPPoE expiry reminders", type: "boolean" },
+            { name: "enable_email_subscription_reminders", label: "Email subscription reminders", type: "boolean" },
+            { name: "send_pppoe_email_reminders", label: "PPPoE email reminders", type: "boolean" },
+            { name: "hotspot_payment_confirmation_sms", label: "Hotspot payment SMS template", type: "textarea", wide: true },
+            { name: "pppoe_payment_confirmation_sms", label: "PPPoE payment SMS template", type: "textarea", wide: true },
+            { name: "hotspot_expiry_notification_sms", label: "Hotspot expiry SMS template", type: "textarea", wide: true },
+            { name: "pppoe_expiry_notification_sms", label: "PPPoE expiry SMS template", type: "textarea", wide: true },
+            { name: "hotspot_expiry_reminder_sms", label: "Hotspot reminder SMS template", type: "textarea", wide: true },
+            { name: "pppoe_expiry_reminder_sms", label: "PPPoE reminder SMS template", type: "textarea", wide: true },
+            { name: "pppoe_email_reminder_subject", label: "PPPoE email reminder subject", maxLength: 200 },
+            { name: "pppoe_email_reminder_message", label: "PPPoE email reminder message", type: "textarea", wide: true, rows: 5 }
+          ]
+        };
+        const content = results.map((result, index) => {
+          const endpoint = endpoints[index];
+          if (result.status === "rejected") return `<section class="workspace-dashboard-card"><h2>${escapeHtml(endpoint)} settings</h2><div class="workspace-error" role="alert">Could not load: ${escapeHtml(result.reason.message || String(result.reason))}</div></section>`;
+          const values = payloadOf(result.value);
+          return settingsFormMarkup(endpoint[0].toUpperCase() + endpoint.slice(1), `/api/v1/tenant/settings/${endpoint}`, values, settingsFields[endpoint]);
+        }).join("");
+        panel.innerHTML = `${sectionHeading("ISP settings", "Manage tenant-scoped organization, billing, hotspot, PPPoE, and notification preferences. Notification templates/settings do not send SMS; delivery is handled by the configured messaging service.")}${state.settingsNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.settingsNotice)}</div>` : ""}<div class="workspace-settings-stack">${content}</div>`;
+        panel.querySelectorAll("[data-settings-endpoint]").forEach((form) => form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const target = event.currentTarget;
+          const submit = target.querySelector('button[type="submit"]');
+          const feedback = target.querySelector(".workspace-form-feedback");
+          const body = {};
+          for (const field of target.elements) {
+            if (!field.name) continue;
+            if (field.type === "checkbox") body[field.name] = field.checked;
+            else if (field.type === "number") body[field.name] = field.value === "" ? null : Number(field.value);
+            else body[field.name] = field.value;
+          }
+          submit.disabled = true;
+          feedback.hidden = true;
+          try {
+            await request(target.dataset.settingsEndpoint, { method: "PATCH", body: JSON.stringify(body) });
+            state.settingsNotice = `${target.querySelector("h3").textContent} saved.`;
+            await loadSection();
+          } catch (error) {
+            feedback.textContent = error.message || String(error);
+            feedback.hidden = false;
+            submit.disabled = false;
+          }
+        }));
         return;
       }
 

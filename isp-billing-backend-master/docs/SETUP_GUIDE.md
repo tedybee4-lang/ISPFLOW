@@ -223,16 +223,27 @@ requests as successful. Current workflows are:
 - Captive portal settings persist through the tenant hotspot/business settings
   APIs. The sandboxed sample preview is not a deployed portal. Branding is
   read-only because its source of truth is the identity service.
-- Voucher inventory remains read-only and voucher codes are masked. Usage
-  charts are aggregates rather than a live session list.
+- Voucher batches can be generated for active tenant packages; newly generated
+  credentials are shown in the browser response, while inventory codes are
+  masked and the inventory API omits hotspot usernames/passwords. Administrators
+  can disable or re-enable eligible vouchers.
+- The notification inbox is scoped to the signed-in user and supports
+  read/unread and delete actions. ISP administrators can update tenant
+  organization, business, hotspot, PPPoE, and notification preferences; saving
+  message templates does not send SMS.
+- Hotspot IP bindings can be listed, created, disabled/enabled, and removed on
+  a selected tenant router. These operations change live router state and
+  require confirmation in the UI.
+- Platform owners can run the global read-only data-integrity check and log
+  findings. This global endpoint is not available in the ISP tenant workspace.
+- Usage charts are aggregates rather than a live session list.
 
 These workflows do not amount to complete ISPFlow feature parity. There is no
-safe local simulated-payment workflow, voucher create/redeem UI, router
-provisioning-script preview/deployment UI, full identity-provider owner invite
-flow, or customer self-service portal. Platform owners can manage persistent
-organization records, but creating an organization does not create an
-identity-provider owner. The tax-rate schema addition is the only migration in
-this change; it preserves existing rows with a zero default.
+safe local simulated-payment workflow, voucher redemption UI, SMS sending,
+router provisioning-script preview/deployment UI, full identity-provider owner
+invite flow, or customer self-service portal. Platform owners can manage
+persistent organization records, but creating an organization does not create
+an identity-provider owner.
 
 Platform owners must explicitly choose an organization before tenant data is
 requested. A separate local test ISP was registered through the development

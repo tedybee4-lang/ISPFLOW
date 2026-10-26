@@ -43,8 +43,6 @@ class VoucherListItem(BaseModel):
     plan_id: Optional[int] = None
     plan_name: Optional[str] = None
     organization_id: Optional[int] = None
-    hotspot_username: Optional[str] = None
-    hotspot_password: Optional[str] = None
     # Limits are derived from the linked plan (not stored on the voucher row).
     data_limit_bytes: Optional[int] = None
     time_limit_seconds: Optional[int] = None
@@ -107,8 +105,6 @@ def _to_list_item(v: VoucherCode, plan: Optional[ServicePlan]) -> "VoucherListIt
         plan_id=v.plan_id,
         plan_name=plan.name if plan is not None else None,
         organization_id=v.organization_id,
-        hotspot_username=v.hotspot_username,
-        hotspot_password=v.hotspot_password,
         data_limit_bytes=data_limit_bytes,
         time_limit_seconds=time_limit_seconds,
         bandwidth_limit=bandwidth_limit,
