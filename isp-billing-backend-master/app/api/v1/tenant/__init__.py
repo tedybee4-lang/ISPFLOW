@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from .settings import router as settings_router
+from .captive_portal import router as captive_portal_router
 
 # NOTE: tenant payment-gateways + platform-billing routers were removed —
 # gateways are owned by treasury-api and ISP-provider billing by subscriptions-api.
@@ -12,3 +13,4 @@ from .settings import router as settings_router
 router = APIRouter(prefix="/tenant", tags=["Tenant"])
 
 router.include_router(settings_router)
+router.include_router(captive_portal_router)

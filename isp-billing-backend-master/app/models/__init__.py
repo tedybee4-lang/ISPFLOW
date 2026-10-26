@@ -18,6 +18,9 @@ from .customer_portal import (
     VoucherCode, VoucherBatch, CustomerSession, CustomerPurchase,
     VoucherStatus, SessionStatus
 )
+from .captive_portal import (
+    CaptivePortalSettings, CaptivePortalVersion, CaptivePortalSyncLog,
+)
 
 # Core models
 from .user import User, UserSession, UserVerification, UserRole as UserRoleEnum, UserStatus
@@ -86,6 +89,11 @@ __all__ = [
     "CustomerPurchase",
     "VoucherStatus",
     "SessionStatus",
+
+    # Captive portal customization
+    "CaptivePortalSettings",
+    "CaptivePortalVersion",
+    "CaptivePortalSyncLog",
 
     # Users
     "User",

@@ -26,6 +26,7 @@ from app.core.rate_limit import limit_credential_attempt
 from app.models.organization import Organization, OrganizationSettings
 from app.models.plan import ServicePlan, PlanType, PlanStatus
 from app.models.customer_portal import VoucherCode, CustomerSession, CustomerPurchase, VoucherStatus, SessionStatus
+from app.models.captive_portal import CaptivePortalSettings
 from app.models.subscription import Subscription, SubscriptionStatus, SubscriptionType
 from app.models.router import Router
 from app.integrations.mikrotik import get_mikrotik_client
@@ -162,6 +163,8 @@ class PortalConfigResponse(BaseModel):
     # contact card is always included so the UI can render it on a purchase 403.
     provider_active: bool = True
     provider_contact: Optional[dict] = None
+    # Captive portal customization (published version if available, else draft)
+    customization: Optional[dict] = None
 
 
 class HotspotLoginRequest(BaseModel):
@@ -229,6 +232,41 @@ async def get_portal_config(
     portal_title = branding.get("portal_title") or organization.name
     portal_description = branding.get("portal_description")
 
+    # Captive portal customization (tenant-specific)
+    cp_result = await db.execute(
+        select(CaptivePortalSettings).where(CaptivePortalSettings.organization_id == organization.id)
+    )
+    cp = cp_result.scalar_one_or_none()
+    customization = None
+    if cp is not None:
+        customization = {
+            "theme": cp.theme,
+            "colors": cp.colors or {},
+            "layout": cp.layout,
+            "package_order": cp.package_order or [],
+            "featured_package_ids": cp.featured_package_ids or [],
+            "sort_mode": cp.sort_mode,
+            "typography": cp.typography or {},
+            "logo_url": cp.logo_url or logo_url,
+            "isp_name": cp.isp_name or organization.name,
+            "tagline": cp.tagline,
+            "support_phone": cp.support_phone,
+            "whatsapp_contact": cp.whatsapp_contact,
+            "footer_info": cp.footer_info,
+            "welcome_heading": cp.welcome_heading,
+            "instructions": cp.instructions,
+            "connection_status_text": cp.connection_status_text,
+            "payment_instructions": cp.payment_instructions,
+            "success_message": cp.success_message,
+            "contact_info": cp.contact_info,
+            "visibility": cp.visibility or {},
+            "card_style": cp.card_style or {},
+            "mobile_columns": cp.mobile_columns,
+            "tablet_columns": cp.tablet_columns,
+            "desktop_columns": cp.desktop_columns,
+            "card_spacing": cp.card_spacing,
+        }
+
     return PortalConfigResponse(
         organization_name=organization.name,
         logo_url=logo_url,
@@ -240,6 +278,7 @@ async def get_portal_config(
         redirect_url=redirect_url,
         provider_active=provider_active,
         provider_contact=provider_contact,
+        customization=customization,
     )
 
 
@@ -318,6 +357,27 @@ async def get_packages(
             duration_minutes=plan.duration_minutes,
             access_window_hours=float(window_hours or 0.0),
         ))
+
+    # Apply tenant captive portal ordering/featured settings
+    try:
+        cp_result = await db.execute(
+            select(CaptivePortalSettings).where(CaptivePortalSettings.organization_id == organization.id)
+        )
+        cp = cp_result.scalar_one_or_none()
+        if cp is not None:
+            order = cp.package_order or []
+            sort_mode = cp.sort_mode or "manual"
+            if sort_mode == "price":
+                packages.sort(key=lambda p: p.price)
+            elif sort_mode == "validity":
+                packages.sort(key=lambda p: (p.validity_days or 0))
+            elif sort_mode == "manual" and order:
+                index = {pid: i for i, pid in enumerate(order)}
+                packages.sort(key=lambda p: index.get(p.id, 10**9))
+            featured = set(cp.featured_package_ids or [])
+            packages.sort(key=lambda p: 0 if p.id in featured else 1)
+    except Exception:
+        pass
 
     return packages
 
