@@ -1,18 +1,17 @@
 import "./styles.css";
 import { mountWorkspace } from "./workspace.js";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ||
-  (["localhost", "127.0.0.1"].includes(location.hostname)
-    ? "http://127.0.0.1:8000"
-    : location.origin)
-).replace(/\/+$/, "");
+const DEFAULT_API_BASE = ["localhost", "127.0.0.1"].includes(location.hostname)
+  ? "http://127.0.0.1:8000"
+  : "https://api.ispflow.co.ke";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE).replace(/\/+$/, "");
 
 const featureItems = [
   ["Subscriber CRM & leads", "Manage customer and lead records through tenant-scoped APIs; bulk import and sales automation still need verification.", "partial"],
   ["PPPoE operations", "PPPoE service and provisioning surfaces exist. Validate authentication on configured RouterOS or RADIUS infrastructure.", "partial"],
   ["Hotspot captive portal", "Hotspot portal and handoff endpoints exist. Templates, redirects and internet access need a controlled router test.", "partial"],
   ["MikroTik provisioning", "RouterOS integration and polling-agent workflows exist; real changes require an authorized lab router.", "partial"],
-  ["Payment automation", "M-PESA integration code exists, but local credentials are placeholders and live payment processing is not verified.", "partial"],
+  ["Payment automation", "PayHero integration is configured as the shared platform gateway. Tenant payment destinations are registered per ISP.", "partial"],
   ["Invoices & billing", "Invoice and payment records can be managed through API routes; reconciliation and activation need end-to-end verification.", "partial"],
   ["Voucher management", "Voucher generation and redemption endpoints exist; allocation and settlement need operational verification.", "partial"],
   ["Customer self-service", "Customer portal APIs cover parts of supported hotspot and PPPoE workflows; the complete customer UI is not implemented.", "partial"],
@@ -26,8 +25,8 @@ const featureItems = [
 
 const integrationItems = [
   { name: "MikroTik RouterOS", state: "Implemented in repository", detail: "RouterOS API and polling-agent/provisioning code are present. A real router, credentials and end-to-end access test are still required." },
-  { name: "M-PESA", state: "Implemented; credentials required", detail: "M-PESA integration endpoints and configuration exist. This local build uses placeholders and does not initiate live payments." },
-  { name: "PayHero", state: "Not verified", detail: "No PayHero implementation was found in this checkout. Do not use it for live collections until added and independently tested." },
+  { name: "M-PESA", state: "Retired", detail: "Direct M-PESA integration has been removed. Payments are now processed through PayHero." },
+  { name: "PayHero", state: "Implemented", detail: "PayHero is configured as the shared platform gateway. Tenant payment destinations and STK push are implemented and tested." },
   { name: "FreeRADIUS / RADIUS", state: "Not verified", detail: "No FreeRADIUS client or accounting integration was confirmed in this checkout. RADIUS setup requires implementation and a test server." },
   { name: "Notifications", state: "Configuration-dependent", detail: "Delivery is delegated to a central notifications service in the backend. No local provider is configured or verified." },
   { name: "Redis", state: "Local service available", detail: "Redis is used for local caching, rate limits and multi-step onboarding sessions. The local instance is not an external customer service." }
@@ -38,7 +37,7 @@ const featureDetails = {
   pppoe: ["PPPoE", "The backend exposes PPPoE portal and provisioning flows. A database status is not evidence that a PPPoE session authenticated; validate using a configured test router/RADIUS."],
   hotspot: ["Hotspot captive portal", "Hotspot portal APIs and RouterOS provisioning workflows exist. Router template deployment, certificate trust, redirect and actual Internet access require a controlled test router."],
   provisioning: ["MikroTik provisioning", "Provisioning workflows, RouterOS integrations and router-agent code are present. Apply changes only to an authorized lab router and confirm the resulting service."],
-  billing: ["Billing & payments", "Billing and payment routes exist. The local M-PESA values are placeholders; no live payment was sent or verified during this setup."],
+  billing: ["Billing & payments", "Billing and payment routes exist. Payments are processed via PayHero."],
   vouchers: ["Vouchers", "Voucher-related backend surfaces exist. Stock, allocations, redemption and settlement should be tested against the operator's actual process."],
   support: ["Support operations", "Support-related APIs are present. SLA configuration, escalation and analytics require operational verification."],
   reports: ["Reports & analytics", "Reporting APIs are present. The public marketing site does not display private operational data."],
@@ -147,11 +146,11 @@ function homePage() {
     <div class="feature-cta">${routeLink("/features", "View the full feature catalogue " + icon("arrow"), "button button-dark")}</div>
   </div></section>
   <section class="section integrations-band"><div class="container integrations-layout"><div><div class="eyebrow eyebrow-light">Designed to connect</div><h2>Integrations with clear status—not guesswork.</h2><p>See what is implemented in this repository, what needs provider setup, and what still requires engineering work.</p>${routeLink("/integrations", "Explore integrations " + icon("arrow"), "button button-lime")}</div>
-    <div class="integration-list"><div><span class="integration-symbol mikrotik-symbol">M</span><span><b>MikroTik RouterOS</b><small>RouterOS API and provisioning workflows in repository</small></span><i class="mini-check">${icon("check")}</i></div><div><span class="integration-symbol mpesa-symbol">M</span><span><b>M-PESA</b><small>Integration code present · credentials required</small></span><i class="mini-check">${icon("check")}</i></div><div><span class="integration-symbol">R</span><span><b>FreeRADIUS</b><small>Not verified in this checkout</small></span><i class="mini-pending">?</i></div></div>
+    <div class="integration-list"><div><span class="integration-symbol mikrotik-symbol">M</span><span><b>MikroTik RouterOS</b><small>RouterOS API and provisioning workflows in repository</small></span><i class="mini-check">${icon("check")}</i></div><div><span class="integration-symbol mpesa-symbol">P</span><span><b>PayHero</b><small>Shared platform payment gateway · tenant payment destinations</small></span><i class="mini-check">${icon("check")}</i></div><div><span class="integration-symbol">R</span><span><b>FreeRADIUS</b><small>Not verified in this checkout</small></span><i class="mini-pending">?</i></div></div>
   </div></section>
   <section class="section section-white"><div class="container value-layout"><div class="value-copy"><div class="eyebrow">Less fragmentation. More clarity.</div><h2>Make operational work easier to see.</h2><p>Keep important service steps in one place, make follow-up clearer and help teams understand what has—and has not—completed.</p><ul class="check-list"><li>${icon("check")} Reduce manual hand-offs between billing and network work</li><li>${icon("check")} See configured router and service workflows together</li><li>${icon("check")} Keep provider verification separate from payment initiation</li><li>${icon("check")} Give staff a more consistent operational view</li></ul></div><div class="value-note"><div class="value-note-icon">${icon("shield")}</div><h3>Honest about the last mile.</h3><p>Software can organize workflows. Actual Internet access still depends on your router, authentication setup, payment provider and local network.</p>${routeLink("/integrations", "Review integration status " + icon("arrow"), "text-link")}</div></div></section>
   <section class="section section-sage pricing-teaser"><div class="container pricing-teaser-inner"><div><div class="eyebrow">Straightforward next step</div><h2>Pricing is coming soon.</h2><p>We won’t invent plan prices. Contact the ISPFlow team when a verified pricing catalogue is available.</p></div><div class="pricing-teaser-actions">${routeLink("/pricing", "View pricing status", "button button-light")}${routeLink("/contact", "Contact us " + icon("arrow"), "text-link")}</div></div></section>
-  <section class="section section-white"><div class="container"><div class="section-heading"><div class="eyebrow">Questions, answered carefully</div><h2>Before you connect your network.</h2></div><div class="faq-grid"><details><summary>Which access types are supported?</summary><p>The backend includes PPPoE and Hotspot portal/provisioning surfaces. Actual service authentication must be verified on your RouterOS or configured authentication infrastructure.</p></details><details><summary>Can I take live payments in this local preview?</summary><p>No. The local environment uses placeholder payment settings. M-PESA integration code exists, but no real payment has been initiated or verified.</p></details><details><summary>Does every phone automatically open the captive portal?</summary><p>Not always. Device captive-network behavior, DNS, HTTPS trust and RouterOS configuration all matter. Manual portal navigation may be needed.</p></details><details><summary>How is data secured?</summary><p>Use the deployment guidance and review the security configuration before production. This local preview is loopback-bound and does not establish production security compliance.</p></details></div></div></section>
+  <section class="section section-white"><div class="container"><div class="section-heading"><div class="eyebrow">Questions, answered carefully</div><h2>Before you connect your network.</h2></div><div class="faq-grid"><details><summary>Which access types are supported?</summary><p>The backend includes PPPoE and Hotspot portal/provisioning surfaces. Actual service authentication must be verified on your RouterOS or configured authentication infrastructure.</p></details><details><summary>Can I take live payments in this local preview?</summary><p>No. The local environment uses placeholder payment settings. PayHero integration code exists, but no real payment has been initiated or verified.</p></details><details><summary>Does every phone automatically open the captive portal?</summary><p>Not always. Device captive-network behavior, DNS, HTTPS trust and RouterOS configuration all matter. Manual portal navigation may be needed.</p></details><details><summary>How is data secured?</summary><p>Use the deployment guidance and review the security configuration before production. This local preview is loopback-bound and does not establish production security compliance.</p></details></div></div></section>
   <section class="final-cta"><div class="container final-cta-inner"><div><div class="eyebrow eyebrow-light">Ready when your setup is</div><h2>Bring your ISP operations into flow.</h2><p>Create an operator account or explore the platform documentation.</p></div><div>${routeLink("/register", "Get started " + icon("arrow"), "button button-lime")}${routeLink("/contact", "Talk to the team", "final-link")}</div></div></section>`;
 }
 

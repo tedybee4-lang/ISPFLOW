@@ -56,7 +56,6 @@ jobs:
               "VPS_SSH_HOST",
               "VPS_SSH_PORT",
               "VPS_DEPLOY_USER",
-              "VPS_PUBLIC_IPV6",
               "VPS_HEALTHCHECK_URL",
               "PRODUCTION_ENCRYPTION_KEY_ID",
               "VPS_DEPLOY_SSH_PRIVATE_KEY",
@@ -66,16 +65,18 @@ jobs:
           if missing:
               raise SystemExit("Missing protected production configuration: " + ", ".join(missing))
 
-          if os.environ["VPS_SSH_HOST"] != "vps-356313.ssh.vps1euro.fr":
-              raise SystemExit("SSH host does not match the reviewed VPS1Euro SSH endpoint.")
-          if os.environ["VPS_SSH_PORT"] != "9254":
-              raise SystemExit("SSH port does not match the reviewed VPS1Euro SSH proxy port.")
+          if os.environ["VPS_SSH_HOST"] != "87.76.137.72":
+              raise SystemExit("SSH host does not match the reviewed RocketVPS SSH endpoint.")
+          if os.environ["VPS_SSH_PORT"] != "22":
+              raise SystemExit("SSH port does not match the reviewed RocketVPS SSH port.")
           if os.environ["VPS_DEPLOY_USER"].strip().lower() == "root":
               raise SystemExit("A dedicated non-root deployment account is required.")
 
-          ipv6 = ipaddress.ip_address(os.environ["VPS_PUBLIC_IPV6"])
-          if ipv6.version != 6 or ipv6.is_private or ipv6.is_loopback or ipv6.is_link_local:
-              raise SystemExit("VPS_PUBLIC_IPV6 must be a verified public IPv6 address.")
+          ipv6 = os.environ.get("VPS_PUBLIC_IPV6", "").strip()
+          if ipv6:
+              address = ipaddress.ip_address(ipv6)
+              if address.version != 6 or address.is_private or address.is_loopback or address.is_link_local:
+                  raise SystemExit("VPS_PUBLIC_IPV6 must be a verified public IPv6 address.")
 
           ipv4 = os.environ.get("VPS_PUBLIC_IPV4", "").strip()
           if ipv4:
@@ -84,8 +85,8 @@ jobs:
                   raise SystemExit("VPS_PUBLIC_IPV4 must be a verified public IPv4 address.")
 
           health = urlsplit(os.environ["VPS_HEALTHCHECK_URL"])
-          if health.scheme != "https" or health.hostname != "ispflow.co.ke" or health.username or health.password:
-              raise SystemExit("VPS_HEALTHCHECK_URL must be an HTTPS health URL on ispflow.co.ke.")
+          if health.scheme != "https" or health.hostname != "api.ispflow.co.ke" or health.username or health.password:
+              raise SystemExit("VPS_HEALTHCHECK_URL must be an HTTPS health URL on api.ispflow.co.ke.")
 
           known_hosts = os.environ["VPS_DEPLOY_KNOWN_HOSTS"].splitlines()
           expected_host = f"[{os.environ['VPS_SSH_HOST']}]:{os.environ['VPS_SSH_PORT']}"
@@ -163,7 +164,9 @@ jobs:
 
           url = os.environ["VPS_HEALTHCHECK_URL"]
           host = urlsplit(url).hostname
-          addresses = [("IPv6", os.environ["VPS_PUBLIC_IPV6"])]
+          addresses = []
+          if os.environ.get("VPS_PUBLIC_IPV6", "").strip():
+              addresses.append(("IPv6", os.environ["VPS_PUBLIC_IPV6"]))
           if os.environ.get("VPS_PUBLIC_IPV4", "").strip():
               addresses.append(("IPv4", os.environ["VPS_PUBLIC_IPV4"]))
 
@@ -269,7 +272,7 @@ jobs:
               raise SystemExit("Destructive data-cleanup migrations are pending; preflight is blocked.")
           if report.get("encryption_key_id") != expected_key_id:
               raise SystemExit("Configured encryption key identity does not match the verified production key.")
-          if report.get("public_ipv6") != expected_ipv6:
+          if expected_ipv6 and report.get("public_ipv6") != expected_ipv6:
               raise SystemExit("Server preflight IPv6 does not match the configured public IPv6.")
 
           for field, label in (
