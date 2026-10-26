@@ -207,17 +207,81 @@ async def payment_callback(request: Request, db: AsyncSession = Depends(get_db))
     if transaction.status == "completed":
         return {"status": "already_processed"}
 
-    if result_code == 0 and status_str and status_str.lower() == "success":
-        transaction.status = "completed"
-        transaction.external_reference = mpesa_receipt or transaction.external_reference
+    success = result_code == 0 and bool(status_str) and status_str.lower() == "success"
+
+    # Amount verification against the initiated transaction.
+    if amount is not None and success:
+        try:
+            cb_amount = Decimal(str(amount))
+        except Exception:
+            cb_amount = None
+        if cb_amount is not None and cb_amount != transaction.amount:
+            transaction.status = "failed"
+            transaction.status_message = (
+                f"Amount mismatch: expected {transaction.amount}, received {cb_amount}"
+            )
+            transaction.callback_data = body
+            transaction.processed_at = datetime.utcnow()
+            await db.commit()
+            logger.warning("PayHero amount mismatch: %s", external_reference)
+            return {"status": "failed", "reason": "amount mismatch"}
+
+    if success:
+        from decimal import Decimal as _D
+        from app.models.billing import Payment, PaymentStatus, PaymentMethod
+        from app.modules.billing.service import BillingService
+
+        paid_amount = transaction.amount
+        if amount is not None:
+            try:
+                paid_amount = _D(str(amount))
+            except Exception:
+                paid_amount = transaction.amount
+
+        receipt_ref = mpesa_receipt or transaction.external_reference or transaction.transaction_reference
+        transaction.external_reference = receipt_ref
         transaction.completed_at = datetime.utcnow()
         transaction.processed_at = datetime.utcnow()
         transaction.callback_data = body
-        if amount:
-            transaction.amount = amount
+        transaction.status = "completed"
         await db.commit()
-        logger.info("PayHero payment completed: %s", external_reference)
-        # TODO: trigger subscription activation / invoice update in next stage
+
+        # Create a Payment record (idempotent: reuse if one already exists).
+        billing = BillingService(db, organization_id=transaction.organization_id)
+        existing_payment = await db.execute(
+            select(Payment).where(Payment.reference_number == receipt_ref)
+        )
+        payment = existing_payment.scalar_one_or_none()
+        if payment is None:
+            payment_number = await billing._generate_payment_number()
+            payment = Payment(
+                organization_id=transaction.organization_id,
+                user_id=transaction.user_id,
+                invoice_id=transaction.invoice_id,
+                payment_number=payment_number,
+                amount=paid_amount,
+                currency=transaction.currency or "KES",
+                payment_method=PaymentMethod.MPESA,
+                status=PaymentStatus.COMPLETED,
+                transaction_id=transaction.transaction_reference,
+                reference_number=receipt_ref,
+                notes=f"PayHero payment {external_reference}",
+                payment_date=datetime.utcnow(),
+                processed_date=datetime.utcnow(),
+            )
+            db.add(payment)
+            await db.commit()
+            await db.refresh(payment)
+
+        # Allocate to invoice (marks paid + activates linked subscription).
+        if transaction.invoice_id:
+            await billing._apply_payment_to_invoice(transaction.invoice_id, paid_amount)
+
+        # Activate subscription if directly linked (idempotent).
+        if transaction.subscription_id:
+            await billing._activate_subscription_on_payment(transaction.subscription_id)
+
+        logger.info("PayHero payment completed and activated: %s", external_reference)
     else:
         transaction.status = "failed"
         transaction.status_message = response.get("ResultDesc", "Payment failed")
