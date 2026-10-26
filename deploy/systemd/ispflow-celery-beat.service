@@ -1,0 +1,20 @@
+[Unit]
+Description=ISPFlow Celery beat
+After=network.target postgresql.service redis-server.service ispflow-celery-worker.service
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=ispflow
+Group=ispflow
+WorkingDirectory=/opt/ispflow/src/isp-billing-backend-master
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/ispflow/src/isp-billing-backend-master/.env
+ExecStart=/opt/ispflow/venv/bin/celery -A app.core.celery:celery_app beat --loglevel=info
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ReadWritePaths=/opt/ispflow/src/isp-billing-backend-master/uploads /opt/ispflow/src/isp-billing-backend-master/logs /opt/ispflow/uploads /opt/ispflow/logs
+
+[Install]
+WantedBy=multi-user.target

@@ -65,7 +65,7 @@ jobs:
           if missing:
               raise SystemExit("Missing protected production configuration: " + ", ".join(missing))
 
-          if os.environ["VPS_SSH_HOST"] != "87.76.137.72":
+          if os.environ["VPS_SSH_HOST"] != "169.58.202.177":
               raise SystemExit("SSH host does not match the reviewed RocketVPS SSH endpoint.")
           if os.environ["VPS_SSH_PORT"] != "22":
               raise SystemExit("SSH port does not match the reviewed RocketVPS SSH port.")
