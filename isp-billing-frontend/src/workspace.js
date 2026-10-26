@@ -6,6 +6,7 @@ const tabs = [
   ["plans", "Packages", "staff"],
   ["subscriptions", "Subscriptions", "staff"],
   ["billing", "Billing", "admin"],
+  ["gateways", "Payment gateways", "admin"],
   ["routers", "Routers", "staff"],
   ["portal", "Captive portal", "tenant-admin"],
   ["usage", "Usage & sessions", "staff"],
@@ -1199,6 +1200,45 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
             panel.prepend(alert);
           }
         }));
+        return;
+      }
+
+      if (state.activeTab === "gateways") {
+        const results = await Promise.allSettled([
+          request("/api/v1/payhero/channels/local")
+        ]);
+        state.paymentChannels = results[0].status === "fulfilled"
+          ? (Array.isArray(results[0].value) ? results[0].value : (payloadOf(results[0].value)?.channels || []))
+          : state.paymentChannels;
+        panel.innerHTML = `${sectionHeading("Payment gateways", "Configure PayHero payment channels per tenant. Internal channel IDs are generated automatically.")}${state.channelNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.channelNotice)}</div>` : ""}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-channel-create">Register PayHero channel</button>` : ""}</div>${state.creatingChannel ? `<form class="workspace-form" id="workspace-channel-form"><div class="workspace-form-grid"><label>Payment method<select name="channel_type"><option value="till">Till</option><option value="paybill">PayBill</option><option value="bank">Bank</option></select></label><label>Short code / Till number<input name="short_code" required></label><label>Account number<input name="account_number"></label><label>Description<input name="description"></label></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Save and register with PayHero</button><button class="workspace-secondary-button" type="button" data-channel-cancel>Cancel</button></div><div class="workspace-form-feedback" role="alert" hidden></div></form>` : ""}${table([{ label: "Method", key: "channel_type" }, { label: "Short code", key: "short_code" }, { label: "PayHero ID", key: "payhero_channel_id" }, { label: "Status", render: (item) => statusCell(item.status) }, { label: "Active", render: (item) => item.is_active ? "Yes" : "No" }, { label: "Verified", render: (item) => item.is_verified ? "Yes" : "No" }], state.paymentChannels, "No payment channels configured.")}`;
+        panel.querySelector("#workspace-channel-create")?.addEventListener("click", () => {
+          state.creatingChannel = true;
+          state.channelNotice = "";
+          loadSection();
+        });
+        panel.querySelectorAll("[data-channel-cancel]").forEach((button) => button.addEventListener("click", () => {
+          state.creatingChannel = false;
+          loadSection();
+        }));
+        const channelForm = panel.querySelector("#workspace-channel-form");
+        channelForm?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const submit = channelForm.querySelector('button[type="submit"]');
+          const feedback = channelForm.querySelector(".workspace-form-feedback");
+          const values = Object.fromEntries(new FormData(channelForm).entries());
+          if (submit) submit.disabled = true;
+          if (feedback) { feedback.hidden = true; feedback.textContent = ""; }
+          try {
+            await request("/api/v1/payhero/channels", { method: "POST", body: JSON.stringify(values) });
+            state.creatingChannel = false;
+            state.channelNotice = "Payment channel registered with PayHero.";
+            await loadSection();
+          } catch (error) {
+            if (feedback) { feedback.hidden = false; feedback.textContent = error.message || "Channel registration failed."; }
+          } finally {
+            if (submit) submit.disabled = false;
+          }
+        });
         return;
       }
 
