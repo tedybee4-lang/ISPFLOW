@@ -235,7 +235,9 @@ function workspaceMarkup(user, organizations, selectedSlug) {
           ${nav("PLATFORM", tabsToShow.filter(([id]) => id === "organizations"))}
           ${nav("CUSTOMERS", tabsToShow.filter(([id]) => ["leads", "subscribers", "plans", "subscriptions"].includes(id)))}
           ${nav("NETWORK", tabsToShow.filter(([id]) => ["routers", "portal", "usage", "vouchers"].includes(id)))}
-          ${nav("OPERATIONS", tabsToShow.filter(([id]) => ["billing", "tickets", "reports", "staff"].includes(id)))}
+          ${nav("PAYMENTS & BILLING", tabsToShow.filter(([id]) => ["billing", "gateways"].includes(id)))}
+          ${nav("OPERATIONS", tabsToShow.filter(([id]) => ["tickets", "reports"].includes(id)))}
+          ${nav("SETTINGS", tabsToShow.filter(([id]) => id === "staff"))}
         </nav>
         <div class="workspace-sidebar-bottom"><span class="workspace-avatar">${escapeHtml(name.slice(0, 1).toUpperCase())}</span><div class="workspace-user"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(role.replaceAll("_", " ") || "user")}</small></div><button class="workspace-signout" id="logout-button" type="button" aria-label="Sign out">↗</button></div>
       </aside>
