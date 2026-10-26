@@ -11,7 +11,8 @@ from .platform_billing import (
 )
 from .payment_gateway import (
     PaymentTransaction, ManualPaymentRecord,
-    PayoutConfig, PayoutRecord, PayoutScheduleType, PayoutRecipientType, PayoutStatus
+    PayoutConfig, PayoutRecord, PayoutScheduleType, PayoutRecipientType, PayoutStatus,
+    TenantPaymentChannel
 )
 from .customer_portal import (
     VoucherCode, VoucherBatch, CustomerSession, CustomerPurchase,
@@ -76,6 +77,7 @@ __all__ = [
     "PayoutScheduleType",
     "PayoutRecipientType",
     "PayoutStatus",
+    "TenantPaymentChannel",
 
     # Customer Portal
     "VoucherCode",

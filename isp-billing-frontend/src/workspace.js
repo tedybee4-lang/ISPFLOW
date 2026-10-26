@@ -281,7 +281,10 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     organizationNotice: "",
     editingPortal: false,
     editingRouter: null,
-    portalNotice: ""
+    portalNotice: "",
+    paymentChannels: [],
+    creatingChannel: false,
+    channelNotice: ""
   };
 
   const request = (path, options = {}) => {
@@ -834,6 +837,34 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           state.paymentPage = Number(button.dataset.paymentPage);
           loadSection();
         }));
+        panel.querySelector("#workspace-channel-create")?.addEventListener("click", () => {
+          state.creatingChannel = true;
+          state.channelNotice = "";
+          loadSection();
+        });
+        panel.querySelectorAll("[data-channel-cancel]").forEach((button) => button.addEventListener("click", () => {
+          state.creatingChannel = false;
+          loadSection();
+        }));
+        const channelForm = panel.querySelector("#workspace-channel-form");
+        channelForm?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const submit = channelForm.querySelector('button[type="submit"]');
+          const feedback = channelForm.querySelector(".workspace-form-feedback");
+          const values = Object.fromEntries(new FormData(channelForm).entries());
+          if (submit) submit.disabled = true;
+          if (feedback) { feedback.hidden = true; feedback.textContent = ""; }
+          try {
+            await request("/api/v1/payhero/channels", { method: "POST", body: JSON.stringify(values) });
+            state.creatingChannel = false;
+            state.channelNotice = "Payment channel registered with PayHero.";
+            await loadSection();
+          } catch (error) {
+            if (feedback) { feedback.hidden = false; feedback.textContent = error.message || "Channel registration failed."; }
+          } finally {
+            if (submit) submit.disabled = false;
+          }
+        });
         panel.querySelector("#workspace-invoice-create")?.addEventListener("click", () => {
           state.creatingInvoice = true;
           state.invoiceNotice = "";
@@ -1174,15 +1205,19 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
       if (state.activeTab === "reports") {
         const results = await Promise.allSettled([
           request("/api/v1/reports/analytics/dashboard"),
-          request("/api/v1/reports/analytics/dashboard-charts")
+          request("/api/v1/reports/analytics/dashboard-charts"),
+          request("/api/v1/payhero/channels/local")
         ]);
         const analytics = results[0].status === "fulfilled" ? payloadOf(results[0].value) : null;
         if (!analytics && results[1].status === "rejected") throw results[0].reason;
+        state.paymentChannels = results[2].status === "fulfilled"
+          ? (Array.isArray(results[2].value) ? results[2].value : (payloadOf(results[2].value)?.channels || []))
+          : state.paymentChannels;
         const billing = analytics?.billing || {};
         const subscriptions = analytics?.subscriptions || {};
         const routers = analytics?.routers || {};
         const charts = results[1].status === "fulfilled" ? payloadOf(results[1].value) : null;
-        panel.innerHTML = `${sectionHeading("Reports & CSV exports", "Analytics are returned by the backend. CSV downloads are authenticated and tenant-scoped.")}${analytics ? `<div class="workspace-metrics"><div class="workspace-metric"><span>Invoice revenue · 30d</span><strong>${amountCell(billing.total_revenue)}</strong></div><div class="workspace-metric"><span>Subscriptions created · 30d</span><strong>${escapeHtml(subscriptions.total_subscriptions ?? "—")}</strong></div><div class="workspace-metric"><span>Routers online</span><strong>${escapeHtml(routers.online_routers ?? "—")} / ${escapeHtml(routers.total_routers ?? "—")}</strong></div></div>` : `<div class="workspace-error">Analytics unavailable: ${escapeHtml(results[0].reason.message || "request failed")}</div>`}${charts ? `<div class="workspace-dashboard-grid workspace-report-charts">${chartPanel("Payments by month", charts.payments_chart || [], "month", "payments")}${chartPanel("Plan utilization", charts.package_utilization_chart || [], "name", "value")}${chartPanel("Subscriber activity", charts.active_users_chart || [], "day", "hotspot")}</div>` : `<div class="workspace-error">Chart data unavailable: ${escapeHtml(results[1].status === "rejected" ? results[1].reason.message || "request failed" : "No chart series returned.")}</div>`}<div class="workspace-export-actions"><button class="button button-light" data-export="subscriptions">Download subscriptions CSV</button><button class="button button-light" data-export="billing">Download billing CSV</button></div>`;
+        panel.innerHTML = `${sectionHeading("Reports & CSV exports", "Analytics are returned by the backend. CSV downloads are authenticated and tenant-scoped.")}${analytics ? `<div class="workspace-metrics"><div class="workspace-metric"><span>Invoice revenue · 30d</span><strong>${amountCell(billing.total_revenue)}</strong></div><div class="workspace-metric"><span>Subscriptions created · 30d</span><strong>${escapeHtml(subscriptions.total_subscriptions ?? "—")}</strong></div><div class="workspace-metric"><span>Routers online</span><strong>${escapeHtml(routers.online_routers ?? "—")} / ${escapeHtml(routers.total_routers ?? "—")}</strong></div></div>` : `<div class="workspace-error">Analytics unavailable: ${escapeHtml(results[0].reason.message || "request failed")}</div>`}${charts ? `<div class="workspace-dashboard-grid workspace-report-charts">${chartPanel("Payments by month", charts.payments_chart || [], "month", "payments")}${chartPanel("Plan utilization", charts.package_utilization_chart || [], "name", "value")}${chartPanel("Subscriber activity", charts.active_users_chart || [], "day", "hotspot")}</div>` : `<div class="workspace-error">Chart data unavailable: ${escapeHtml(results[1].status === "rejected" ? results[1].reason.message || "request failed" : "No chart series returned.")}</div>`}<div class="workspace-export-actions"><button class="button button-light" data-export="subscriptions">Download subscriptions CSV</button><button class="button button-light" data-export="billing">Download billing CSV</button></div><h3 class="workspace-subheading">Payment Channels (PayHero)</h3>${state.channelNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.channelNotice)}</div>` : ""}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-channel-create">Register channel</button>` : ""}</div>${state.creatingChannel ? `<form class="workspace-form" id="workspace-channel-form"><div class="workspace-form-grid"><label>Channel type<select name="channel_type"><option value="till">Till</option><option value="paybill">PayBill</option><option value="bank">Bank</option></select></label><label>Short code / Till number<input name="short_code" required></label><label>Account number<input name="account_number"></label><label>Description<input name="description"></label></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Register with PayHero</button><button class="workspace-secondary-button" type="button" data-channel-cancel>Cancel</button></div><div class="workspace-form-feedback" role="alert" hidden></div></form>` : ""}${table([{ label: "Type", key: "channel_type" }, { label: "Short code", key: "short_code" }, { label: "PayHero ID", key: "payhero_channel_id" }, { label: "Active", render: (item) => item.is_active ? "Yes" : "No" }, { label: "Verified", render: (item) => item.is_verified ? "Yes" : "No" }], state.paymentChannels, "No payment channels registered.")}</div>`;
         panel.querySelectorAll("[data-export]").forEach((button) => button.addEventListener("click", () => exportCsv(button.dataset.export, button)));
         return;
       }

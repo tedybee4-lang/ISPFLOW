@@ -94,9 +94,31 @@ class PaymentTransaction(Base):
     subscription = relationship("Subscription", backref="payment_transactions")
     user = relationship("User", backref="payment_transactions")
 
-    def __repr__(self) -> str:
-        """String representation."""
-        return f"<PaymentTransaction(id={self.id}, ref={self.transaction_reference}, status={self.status})>"
+class TenantPaymentChannel(Base):
+    """
+    Tenant-specific PayHero payment channel mapping.
+
+    Stores the PayHero channel_id returned by the platform-level PayHero API
+    for each ISP's payment destination (till, paybill, or bank account).
+    The platform PayHero credentials remain centrally managed.
+    """
+    __tablename__ = "tenant_payment_channels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    channel_type = Column(String(20), nullable=False)  # till, paybill, bank
+    short_code = Column(String(20), nullable=False)
+    account_number = Column(String(50), nullable=True)
+    description = Column(String(200), nullable=True)
+    payhero_channel_id = Column(Integer, nullable=False, index=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "payhero_channel_id", name="uq_org_payhero_channel"),
+    )
 
 
 class ManualPaymentRecord(Base):

@@ -284,7 +284,7 @@ if not settings.is_production:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=settings.cors_allow_credentials,
+    allow_credentials=(settings.cors_allow_credentials and "*" not in cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Authorization", "X-Request-ID", "Content-Range", "*"],

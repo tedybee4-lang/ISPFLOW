@@ -222,7 +222,7 @@ class Settings(BaseSettings):
         return self
 
     # CORS
-    cors_origins: List[str] = [
+    cors_origins: Union[str, List[str]] = [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://192.168.100.4:3000",
@@ -350,16 +350,6 @@ class Settings(BaseSettings):
     backup_schedule: str = "0 2 * * *"  # Daily at 2 AM
     backup_retention_days: int = 30
     backup_s3_bucket: Optional[str] = None
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
-        """Parse CORS origins from string or list."""
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
 
     @field_validator("environment")
     @classmethod

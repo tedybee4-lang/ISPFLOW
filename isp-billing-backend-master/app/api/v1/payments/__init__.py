@@ -18,6 +18,8 @@ from fastapi import APIRouter
 # (Layer 1) and applies the centralized cash/COD exclusion + essential-config
 # gate (Layer 2) — see app.modules.payments.gateway_filter.
 from .gateways import router as gateways_router
+from .payhero import router as payhero_router
 
 router = APIRouter()
 router.include_router(gateways_router)
+router.include_router(payhero_router)
