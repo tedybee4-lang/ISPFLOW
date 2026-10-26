@@ -1306,3 +1306,14 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
   bindControls();
   if (!["customer"].includes(role)) loadSection();
 }
+if (state.activeTab === "subscribers") {
+        const response = await request("/api/v1/subscribers/?page=1&size=100");
+        panel.innerHTML = tablePanel("Subscribers", "Subscriber records from the tenant-scoped API. Status and package assignment remain controlled backend workflows.", [
+          { label: "Name", key: "name" },
+          { label: "Email", key: "email" },
+          { label: "Phone", key: "phone" },
+          { label: "Package", key: "plan_name" },
+          { label: "Status", render: (item) => statusCell(item.status) },
+          { label: "Created", render: (item) => dateCell(item.created_at) }
+        ], listOf(response, "items"), "No subscriber records were returned.");
+      }
