@@ -46,6 +46,12 @@ class PaymentTransaction(Base):
     # Primary key
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    tenant_payment_channel_id = Column(
+        Integer,
+        ForeignKey("tenant_payment_channels.id"),
+        nullable=True,
+        index=True,
+    )
     # Historical gateway reference (FK removed — payment_gateway_configs dropped; treasury owns gateways).
     gateway_id = Column(Integer, nullable=True, index=True)
 
@@ -96,11 +102,10 @@ class PaymentTransaction(Base):
 
 class TenantPaymentChannel(Base):
     """
-    Tenant-specific PayHero payment channel mapping.
+    Tenant-specific PayHero channel configuration and generated channel mapping.
 
-    Stores the PayHero channel_id returned by the platform-level PayHero API
-    for each ISP's payment destination (till, paybill, or bank account).
-    The platform PayHero credentials remain centrally managed.
+    The tenant's API token is encrypted at rest. The generated PayHero channel ID
+    is only used internally when initiating payments.
     """
     __tablename__ = "tenant_payment_channels"
 
@@ -111,6 +116,8 @@ class TenantPaymentChannel(Base):
     account_number = Column(String(50), nullable=True)
     description = Column(String(200), nullable=True)
     payhero_channel_id = Column(Integer, nullable=True, index=True)
+    payhero_account_id = Column(Integer, nullable=True)
+    api_token_encrypted = Column(Text, nullable=True)
     status = Column(String(30), nullable=False, default="not_configured")
     last_error = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -360,4 +367,3 @@ class PayoutRecord(Base):
     def __repr__(self) -> str:
         """String representation."""
         return f"<PayoutRecord(id={self.id}, ref={self.reference}, amount={self.amount}, status={self.status})>"
-

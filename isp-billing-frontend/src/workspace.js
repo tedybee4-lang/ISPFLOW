@@ -177,7 +177,8 @@ function portalPreviewDocument(organization, settings, terms) {
 
 function table(columns, rows, empty = "No records were returned.") {
   if (!rows.length) return `<div class="workspace-empty">${escapeHtml(empty)}</div>`;
-  return `<div class="workspace-table-wrap"><table class="workspace-table"><thead><tr>${columns.map((column) => `<th scope="col">${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map((column) => `<td>${column.render ? column.render(row) : escapeHtml(row[column.key] ?? "—")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const visibleColumns = columns.filter((column) => column.key !== "payhero_channel_id");
+  return `<div class="workspace-table-wrap"><table class="workspace-table"><thead><tr>${visibleColumns.map((column) => `<th scope="col">${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${visibleColumns.map((column) => `<td>${column.render ? column.render(row) : escapeHtml(row[column.key] ?? "—")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 function sectionHeading(title, detail) {
@@ -214,6 +215,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
   const isOwner = role === "platform_owner";
   const isAdmin = isOwner || role === "isp_admin";
   const customer = role === "customer";
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
   const tabsToShow = customer ? [] : tabs.filter(([id, , access]) =>
     access === "staff" ||
     (access === "platform" && isOwner) ||
@@ -224,7 +226,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
   const organization = organizations.find((item) => item.slug === selectedSlug);
   const name = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.username || user.email || "Operator";
   const nav = (group, entries) => entries.length ? `<div class="workspace-nav-group"><span>${group}</span>${entries.map(([id, label]) => `<button type="button" class="workspace-tab ${id === "overview" ? "active" : ""}" data-workspace-tab="${id}" aria-current="${id === "overview" ? "page" : "false"}"><i aria-hidden="true">${({ overview: "◈", organizations: "▦", leads: "◇", subscribers: "◎", plans: "◫", subscriptions: "↗", billing: "＄", routers: "⌁", portal: "◉", usage: "▥", vouchers: "▤", tickets: "◌", reports: "▧", staff: "⚙" })[id]}</i><span>${label}</span></button>`).join("")}</div>` : "";
-  return `<div class="workspace-shell">
+  return `<div class="workspace-shell ${isMobile ? "sidebar-collapsed" : ""}">
       <aside class="workspace-sidebar">
         <a class="workspace-brand" href="/app" aria-label="ISPFlow workspace"><span class="workspace-brand-mark">I</span><span>ispflow<small>NETWORK CONSOLE</small></span></a>
         <div class="workspace-tenant-chip"><span class="workspace-online-dot"></span><div><small>WORKSPACE</small><strong>${escapeHtml(organization?.name || (isOwner ? "Select organization" : "ISP Operations"))}</strong></div></div>
@@ -240,7 +242,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
       <main class="workspace-main">
         <header class="workspace-toolbar">
           <div class="workspace-crumb"><span>ISPFlow</span><b>/</b><strong>${escapeHtml(tabs.find(([id]) => id === "overview")?.[1] || "Overview")}</strong></div>
-          <div class="workspace-tools">${orgHeader(isOwner, organizations, selectedSlug)}<button class="workspace-menu-toggle" id="workspace-menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="true">☰</button><button class="workspace-refresh" id="workspace-refresh" type="button" aria-label="Refresh data">↻ <span>Refresh</span></button></div>
+          <div class="workspace-tools">${orgHeader(isOwner, organizations, selectedSlug)}<button class="workspace-menu-toggle" id="workspace-menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="${!isMobile}">☰ <span>Menu</span></button><button class="workspace-refresh" id="workspace-refresh" type="button" aria-label="Refresh data">↻ <span>Refresh</span></button></div>
         </header>
         ${customer ? `<section class="workspace-panel"><h2>Customer self-service</h2><p>The operator workspace is not available to customer accounts. A complete customer portal UI is not included in this frontend yet.</p><a class="button button-light" href="/docs">Review available portal API documentation</a></section>` : `
         <div class="workspace-current-org">${organization ? `Connected to <strong>${escapeHtml(organization.name)}</strong><span class="workspace-connected">● Connected</span>` : isOwner ? "Select an organization to load its tenant-scoped data." : "Tenant-scoped workspace"}</div>
@@ -1209,8 +1211,37 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
         ]);
         state.paymentChannels = results[0].status === "fulfilled"
           ? (Array.isArray(results[0].value) ? results[0].value : (payloadOf(results[0].value)?.channels || []))
-          : state.paymentChannels;
-        panel.innerHTML = `${sectionHeading("Payment gateways", "Configure PayHero payment channels per tenant. Internal channel IDs are generated automatically.")}${state.channelNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.channelNotice)}</div>` : ""}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-channel-create">Register PayHero channel</button>` : ""}</div>${state.creatingChannel ? `<form class="workspace-form" id="workspace-channel-form"><div class="workspace-form-grid"><label>Payment method<select name="channel_type"><option value="till">Till</option><option value="paybill">PayBill</option><option value="bank">Bank</option></select></label><label>Short code / Till number<input name="short_code" required></label><label>Account number<input name="account_number"></label><label>Description<input name="description"></label></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Save and register with PayHero</button><button class="workspace-secondary-button" type="button" data-channel-cancel>Cancel</button></div><div class="workspace-form-feedback" role="alert" hidden></div></form>` : ""}${table([{ label: "Method", key: "channel_type" }, { label: "Short code", key: "short_code" }, { label: "PayHero ID", key: "payhero_channel_id" }, { label: "Status", render: (item) => statusCell(item.status) }, { label: "Active", render: (item) => item.is_active ? "Yes" : "No" }, { label: "Verified", render: (item) => item.is_verified ? "Yes" : "No" }], state.paymentChannels, "No payment channels configured.")}`;
+          : [];
+        const channelLoadError = results[0].status === "rejected"
+          ? results[0].reason.message || "Payment channel status is unavailable."
+          : "";
+        panel.innerHTML = `${sectionHeading("Payment gateways", "Configure PayHero payment channels per tenant. PayHero generates the internal channel ID automatically.")}${state.channelNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.channelNotice)}</div>` : ""}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-channel-create">Register PayHero channel</button>` : ""}</div>${state.creatingChannel ? `<form class="workspace-form" id="workspace-channel-form"><div class="workspace-form-grid"><label>Payment method<select name="channel_type"><option value="till">Till</option><option value="paybill">PayBill</option><option value="bank">Bank</option></select></label><label>Short code / Till number<input name="short_code" required></label><label>Merchant account number<input name="account_number" required></label><label>Description<input name="description"></label></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Save and register with PayHero</button><button class="workspace-secondary-button" type="button" data-channel-cancel>Cancel</button></div><div class="workspace-form-feedback" role="alert" hidden></div></form>` : ""}${table([{ label: "Method", key: "channel_type" }, { label: "Short code", key: "short_code" }, { label: "PayHero ID", key: "payhero_channel_id" }, { label: "Status", render: (item) => statusCell(item.status) }, { label: "Active", render: (item) => item.is_active ? "Yes" : "No" }, { label: "Verified", render: (item) => item.is_verified ? "Yes" : "No" }], state.paymentChannels, "No payment channels configured.")}`;
+        if (channelLoadError) {
+          const errorNotice = document.createElement("div");
+          errorNotice.className = "workspace-error";
+          errorNotice.setAttribute("role", "alert");
+          errorNotice.textContent = channelLoadError;
+          panel.append(errorNotice);
+        } else if (!state.paymentChannels.length) {
+          const statusNotice = document.createElement("div");
+          statusNotice.className = "workspace-note";
+          statusNotice.setAttribute("role", "status");
+          statusNotice.textContent = "Not configured. Register a PayHero channel to begin.";
+          panel.append(statusNotice);
+        }
+        const channelErrors = state.paymentChannels.map((channel) => channel.last_error).filter(Boolean);
+        if (channelErrors.length) {
+          const errorNotice = document.createElement("div");
+          errorNotice.className = "workspace-error";
+          errorNotice.setAttribute("role", "alert");
+          errorNotice.textContent = channelErrors.join(" ");
+          panel.append(errorNotice);
+        }
+        const configChannelForm = panel.querySelector("#workspace-channel-form");
+        configChannelForm?.querySelector(".workspace-form-grid")?.insertAdjacentHTML(
+          "beforeend",
+          `<label>PayHero account ID (not the channel ID)<input name="account_id" type="number" min="1" step="1" autocomplete="off"><small>PayHero requires this merchant account ID to create a channel. The channel ID is generated automatically. Required for the first channel; leave blank on retries to reuse the saved account.</small></label><label>PayHero Basic Auth token<input name="api_token" type="password" autocomplete="new-password"><small>Paste the Basic Auth token from your PayHero API Keys page. ISPFlow encrypts it at rest. Leave blank on a retry to reuse the saved token.</small></label>`
+        );
         panel.querySelector("#workspace-channel-create")?.addEventListener("click", () => {
           state.creatingChannel = true;
           state.channelNotice = "";
@@ -1245,19 +1276,23 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
       if (state.activeTab === "reports") {
         const results = await Promise.allSettled([
           request("/api/v1/reports/analytics/dashboard"),
-          request("/api/v1/reports/analytics/dashboard-charts"),
-          request("/api/v1/payhero/channels/local")
+          request("/api/v1/reports/analytics/dashboard-charts")
         ]);
         const analytics = results[0].status === "fulfilled" ? payloadOf(results[0].value) : null;
         if (!analytics && results[1].status === "rejected") throw results[0].reason;
-        state.paymentChannels = results[2].status === "fulfilled"
-          ? (Array.isArray(results[2].value) ? results[2].value : (payloadOf(results[2].value)?.channels || []))
-          : state.paymentChannels;
         const billing = analytics?.billing || {};
         const subscriptions = analytics?.subscriptions || {};
         const routers = analytics?.routers || {};
         const charts = results[1].status === "fulfilled" ? payloadOf(results[1].value) : null;
         panel.innerHTML = `${sectionHeading("Reports & CSV exports", "Analytics are returned by the backend. CSV downloads are authenticated and tenant-scoped.")}${analytics ? `<div class="workspace-metrics"><div class="workspace-metric"><span>Invoice revenue · 30d</span><strong>${amountCell(billing.total_revenue)}</strong></div><div class="workspace-metric"><span>Subscriptions created · 30d</span><strong>${escapeHtml(subscriptions.total_subscriptions ?? "—")}</strong></div><div class="workspace-metric"><span>Routers online</span><strong>${escapeHtml(routers.online_routers ?? "—")} / ${escapeHtml(routers.total_routers ?? "—")}</strong></div></div>` : `<div class="workspace-error">Analytics unavailable: ${escapeHtml(results[0].reason.message || "request failed")}</div>`}${charts ? `<div class="workspace-dashboard-grid workspace-report-charts">${chartPanel("Payments by month", charts.payments_chart || [], "month", "payments")}${chartPanel("Plan utilization", charts.package_utilization_chart || [], "name", "value")}${chartPanel("Subscriber activity", charts.active_users_chart || [], "day", "hotspot")}</div>` : `<div class="workspace-error">Chart data unavailable: ${escapeHtml(results[1].status === "rejected" ? results[1].reason.message || "request failed" : "No chart series returned.")}</div>`}<div class="workspace-export-actions"><button class="button button-light" data-export="subscriptions">Download subscriptions CSV</button><button class="button button-light" data-export="billing">Download billing CSV</button></div><h3 class="workspace-subheading">Payment Channels (PayHero)</h3>${state.channelNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.channelNotice)}</div>` : ""}<div class="workspace-list-toolbar">${isAdmin ? `<button class="workspace-primary-button" type="button" id="workspace-channel-create">Register channel</button>` : ""}</div>${state.creatingChannel ? `<form class="workspace-form" id="workspace-channel-form"><div class="workspace-form-grid"><label>Channel type<select name="channel_type"><option value="till">Till</option><option value="paybill">PayBill</option><option value="bank">Bank</option></select></label><label>Short code / Till number<input name="short_code" required></label><label>Account number<input name="account_number"></label><label>Description<input name="description"></label></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Register with PayHero</button><button class="workspace-secondary-button" type="button" data-channel-cancel>Cancel</button></div><div class="workspace-form-feedback" role="alert" hidden></div></form>` : ""}${table([{ label: "Type", key: "channel_type" }, { label: "Short code", key: "short_code" }, { label: "PayHero ID", key: "payhero_channel_id" }, { label: "Active", render: (item) => item.is_active ? "Yes" : "No" }, { label: "Verified", render: (item) => item.is_verified ? "Yes" : "No" }], state.paymentChannels, "No payment channels registered.")}</div>`;
+        panel.querySelectorAll(".workspace-export-actions").forEach((exports) => {
+          let sibling = exports.nextElementSibling;
+          while (sibling) {
+            const next = sibling.nextElementSibling;
+            sibling.remove();
+            sibling = next;
+          }
+        });
         panel.querySelectorAll("[data-export]").forEach((button) => button.addEventListener("click", () => exportCsv(button.dataset.export, button)));
         return;
       }
@@ -1327,6 +1362,12 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
       const btn = holder.querySelector("#workspace-menu-toggle");
       if (btn) btn.setAttribute("aria-expanded", String(!collapsed));
     });
+    holder.querySelector(".workspace-shell")?.addEventListener("click", (event) => {
+      const shell = event.currentTarget;
+      if (event.target !== shell || shell.classList.contains("sidebar-collapsed")) return;
+      shell.classList.add("sidebar-collapsed");
+      holder.querySelector("#workspace-menu-toggle")?.setAttribute("aria-expanded", "false");
+    });
     holder.querySelector("#workspace-org-select")?.addEventListener("change", (event) => {
       state.selectedSlug = event.target.value;
       state.activeTab = "overview";
@@ -1338,6 +1379,10 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     });
     holder.querySelectorAll("[data-workspace-tab]").forEach((button) => button.addEventListener("click", () => {
       state.activeTab = button.dataset.workspaceTab;
+      if (window.matchMedia("(max-width: 760px)").matches) {
+        holder.querySelector(".workspace-shell")?.classList.add("sidebar-collapsed");
+        holder.querySelector("#workspace-menu-toggle")?.setAttribute("aria-expanded", "false");
+      }
       holder.querySelectorAll("[data-workspace-tab]").forEach((tab) => {
         const active = tab.dataset.workspaceTab === state.activeTab;
         tab.classList.toggle("active", active);

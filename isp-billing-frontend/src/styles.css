@@ -118,6 +118,42 @@
 @media(max-width:760px){.workspace-section{padding:0}.workspace-shell{grid-template-columns:150px minmax(0,1fr)}.workspace-sidebar{height:100vh;padding:12px 8px;overflow:auto}.workspace-brand small,.workspace-tenant-chip,.workspace-sidebar-bottom{display:none}.workspace-nav-group>span{display:block;font-size:7px;padding:0 8px 4px}.workspace-tabs{flex-direction:column;gap:4px;overflow:visible}.workspace-nav-group{display:grid;gap:2px}.workspace-tab{width:100%;justify-content:flex-start;padding:8px 9px;font-size:9px;border-radius:7px}.workspace-tab i{width:14px;font-size:12px}.workspace-main{padding:0 13px 24px}.workspace-toolbar{min-height:56px;flex-wrap:wrap;padding:8px 0}.workspace-tools{flex-wrap:wrap}.workspace-org-picker{gap:5px}.workspace-org-picker select{min-width:130px;max-width:175px}.workspace-refresh{padding:7px}.workspace-current-org{margin-top:10px}.workspace-welcome{align-items:flex-start;padding:20px 0 15px}.workspace-welcome-date{font-size:8px}.workspace-dashboard-grid{grid-template-columns:1fr}.workspace-dashboard-wide{grid-column:auto}.workspace-report-charts{grid-template-columns:1fr}.workspace-chart-bars{height:110px}.workspace-panel{min-height:0}.workspace-section-heading h2{font-size:16px}.workspace-metrics{gap:8px}.workspace-metric{min-height:82px;padding:11px}.workspace-metric>strong{font-size:18px}.workspace-table{font-size:9px}}
 @media(max-width:420px){.workspace-main{padding-right:10px;padding-left:10px}.workspace-tab{padding:9px 8px}.workspace-tab i{display:none}.workspace-welcome h1{font-size:22px}.workspace-current-org{align-items:flex-start;flex-direction:column}.workspace-refresh span{display:none}}
 
+.workspace-menu-toggle{display:none}
+@media(max-width:760px){
+  .workspace-shell,.workspace-shell.sidebar-collapsed{grid-template-columns:minmax(0,1fr)}
+  .workspace-sidebar{position:fixed;inset:0 auto 0 0;z-index:41;width:min(84vw,280px);height:100dvh;padding:18px 12px;overflow-y:auto;transform:translateX(-100%);visibility:hidden;transition:transform .18s ease,visibility .18s ease}
+  .workspace-shell:not(.sidebar-collapsed) .workspace-sidebar{transform:translateX(0);visibility:visible}
+  .workspace-shell:not(.sidebar-collapsed)::before{position:fixed;inset:0;z-index:40;background:#070a0dcc;content:""}
+  .workspace-brand small,.workspace-tenant-chip{display:initial}
+  .workspace-tenant-chip{display:flex}
+  .workspace-sidebar-bottom{display:flex}
+  .workspace-nav-group>span{font-size:9px;padding:0 9px 5px}
+  .workspace-tabs{flex-direction:column;gap:9px;overflow:visible}
+  .workspace-nav-group{display:grid;gap:3px}
+  .workspace-tab{width:100%;justify-content:flex-start;padding:10px 11px;font-size:11px;border-radius:7px}
+  .workspace-tab i{display:inline-block;width:17px;font-size:14px}
+  .workspace-menu-toggle{display:inline-flex;min-height:34px;align-items:center;justify-content:center;gap:6px;border:1px solid #323a48;border-radius:6px;background:#171d27;padding:7px 10px;color:#bdc4cf;font-size:10px}
+  .workspace-tools{min-width:0;flex-wrap:wrap}
+  .workspace-org-picker{min-width:0;max-width:calc(100vw - 150px);flex-wrap:wrap}
+  .workspace-org-picker select{min-width:0;max-width:100%;width:min(52vw,240px)}
+  .workspace-main{min-width:0;padding:0 15px 24px}
+  .workspace-toolbar{align-items:center;flex-wrap:wrap;padding:9px 0}
+  .workspace-crumb{min-width:0}
+  .workspace-table-wrap{max-width:100%;overscroll-behavior-x:contain}
+  .workspace-panel{padding:15px}
+  .workspace-section-heading{gap:10px}
+  .workspace-section-heading p{font-size:12px}
+  .workspace-form-grid{grid-template-columns:1fr}
+}
+@media(max-width:420px){
+  .workspace-main{padding-right:10px;padding-left:10px}
+  .workspace-org-picker{max-width:calc(100vw - 130px)}
+  .workspace-org-picker select{width:min(48vw,190px)}
+  .workspace-menu-toggle{padding:7px}
+  .workspace-menu-toggle span{display:none}
+  .workspace-panel{padding:12px}
+}
+
 /* Dark public ISPFlow marketing theme, separate from authenticated workspace. */
 #app.public-site{min-height:100vh;background:#10151d;color:#e9edf2;--deep:#f0f2f5;--ink:#e0e5eb;--muted:#a1aab6;--paper:#171d27;--sage:#151b24;--line:#2b3440;--lime:#f1a24f;--teal:#77a49b;--shadow:0 24px 80px #0007}
 #app.public-site .site-header{background:rgba(16,21,29,.94);border-bottom-color:#2b323d}
@@ -266,5 +302,4 @@
 .workspace-portal-preview.workspace-portal-mobile{width:min(390px,100%);margin:0 auto}
 .workspace-form-wide{grid-column:1/-1}
 @media(max-width:760px){.workspace-portal-preview{height:520px}}
-
 

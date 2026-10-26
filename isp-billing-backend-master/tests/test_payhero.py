@@ -1,259 +1,383 @@
-"""PayHero payment gateway tests."""
+"""PayHero tenant isolation, channel lifecycle, and callback tests."""
 
+from decimal import Decimal
+
+import httpx
 import pytest
-from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from app.core.security import get_password_hash
+from app.models.organization import Organization, OrganizationType
+from app.models.billing import Payment
+from app.models.payment_gateway import PaymentTransaction, TenantPaymentChannel
+from app.models.user import User, UserRole, UserStatus
 
 
 class FakePayHeroClient:
     def __init__(self):
+        self.channels = []
         self.register_calls = 0
-        self.register_result = {"id": 999, "is_active": True}
+        self.initiate_calls = 0
+        self.account_id = None
+        self.fail_after_create = False
+        self.transaction_status = {
+            "status": "SUCCESS",
+            "success": True,
+            "reference": "provider-ref",
+        }
 
-    async def register_payment_channel(self, **kwargs):
+    async def list_payment_channels(self, page=None):
+        return {
+            "payment_channels": list(self.channels),
+            "pagination": {"next_page": None},
+        }
+
+    async def register_payment_channel(self, **payload):
         self.register_calls += 1
-        return dict(self.register_result)
-
-    async def list_payment_channels(self):
-        return {"channels": []}
+        channel = {
+            "id": 900 + self.register_calls,
+            "account_id": self.account_id,
+            "channel_type": payload["channel_type"],
+            "short_code": payload["short_code"],
+            "account_number": payload["account_number"],
+            "is_active": True,
+        }
+        self.channels.append(channel)
+        if self.fail_after_create:
+            self.fail_after_create = False
+            raise httpx.ConnectTimeout("simulated response loss")
+        return channel
 
     async def initiate_stk_push(self, **kwargs):
-        return {"success": True, "status": "QUEUED", "reference": "PHREF123", "CheckoutRequestID": "ws_CO_1"}
+        self.initiate_calls += 1
+        return {
+            "success": True,
+            "status": "QUEUED",
+            "reference": "provider-ref",
+            "CheckoutRequestID": "checkout-1",
+        }
 
     async def get_transaction_status(self, reference):
-        return {"status": "success"}
+        assert reference == "provider-ref"
+        return dict(self.transaction_status)
 
 
 @pytest.fixture
 def fake_payhero(monkeypatch):
     fake = FakePayHeroClient()
-    import app.api.v1.payments.payhero as mod
-    monkeypatch.setattr(mod, "PayHeroClient", lambda: fake)
-    # also patch integration module used indirectly
-    import app.integrations.payhero as integ
-    monkeypatch.setattr(integ, "PayHeroClient", lambda: fake)
+    import app.api.v1.payments.payhero as routes
+
+    def create_client(**kwargs):
+        fake.account_id = kwargs.get("account_id")
+        return fake
+
+    monkeypatch.setattr(routes, "PayHeroClient", create_client)
     return fake
 
 
-@pytest.mark.asyncio
-async def test_payhero_channel_auto_created(
-    client: AsyncClient, admin_auth_headers, fake_payhero
-):
-    payload = {
+def channel_payload(**overrides):
+    return {
         "channel_type": "till",
         "short_code": "123456",
-        "account_number": "ACC1",
-        "description": "My till",
+        "account_number": "merchant-account-1",
+        "description": "Test till",
+        "account_id": 12345,
+        "api_token": "sandbox-token",
+        **overrides,
     }
-    resp = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["payhero_channel_id"] == 999
-    assert data["status"] == "active"
-    assert data["is_verified"] is True
-    assert fake_payhero.register_calls == 1
 
 
-@pytest.mark.asyncio
-async def test_payhero_channel_retry_no_duplicate(
-    client: AsyncClient, admin_auth_headers, fake_payhero
-):
-    payload = {
-        "channel_type": "till",
-        "short_code": "777",
-        "account_number": "ACC2",
-        "description": "till",
-    }
-    r1 = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert r1.status_code == 200
-    # simulate failure then retry
-    fake_payhero.register_result = {"id": None}
-    r2 = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert r2.status_code == 502
-    # restore and retry
-    fake_payhero.register_result = {"id": 1001, "is_active": True}
-    r3 = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert r3.status_code == 200
-    assert r3.json()["payhero_channel_id"] == 1001
-    # same record updated, not duplicated
-    listing = await client.get("/api/v1/payhero/channels/local", headers=admin_auth_headers)
-    assert listing.status_code == 200
-    channels = listing.json()
-    matches = [c for c in channels if c["short_code"] == "777"]
-    assert len(matches) == 1
-
-
-@pytest.mark.asyncio
-async def test_payhero_missing_credentials_error(
-    client: AsyncClient, admin_auth_headers, monkeypatch
-):
-    # Make PayHeroClient raise
-    class BrokenClient:
-        async def register_payment_channel(self, **kwargs):
-            raise ValueError("PayHero API credentials are not configured")
-        async def list_payment_channels(self):
-            raise ValueError("PayHero API credentials are not configured")
-    import app.api.v1.payments.payhero as mod
-    monkeypatch.setattr(mod, "PayHeroClient", lambda: BrokenClient())
-    payload = {"channel_type": "till", "short_code": "555", "account_number": "x", "description": "d"}
-    resp = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert resp.status_code == 502
-    assert "credentials" in resp.text.lower() or "failed" in resp.text.lower()
-
-
-@pytest.mark.asyncio
-async def test_payhero_callback_idempotency(
-    client: AsyncClient, admin_auth_headers, fake_payhero, db_session
-):
-    # Create a channel and transaction via initiate? Instead direct callback on unknown ref returns ignored
-    body = {"response": {"ExternalReference": "NOPE", "ResultCode": 0, "Status": "Success", "Amount": 10}}
-    resp = await client.post("/api/v1/payhero/callback", json=body)
-    assert resp.status_code == 200
-    assert resp.json().get("reason") == "unknown reference"
-
-
-@pytest.mark.asyncio
-async def test_payhero_cross_tenant_channel_not_visible(
-    client: AsyncClient, admin_auth_headers, fake_payhero, db_session
-):
-    # second org
-    from app.models.organization import Organization, OrganizationType
-    org2 = Organization(name="Other ISP", slug="other-isp", email="o@example.com", organization_type=OrganizationType.HYBRID)
-    db_session.add(org2)
-    await db_session.flush()
-    # admin stays org1; channel created under org1
-    payload = {"channel_type": "till", "short_code": "999", "account_number": "x", "description": "d"}
-    await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    listing = await client.get("/api/v1/payhero/channels/local", headers=admin_auth_headers)
-    assert all(c["short_code"] != "LEAKED" for c in listing.json())
-"""PayHero payment gateway tests."""
-
-import pytest
-from httpx import AsyncClient
-
-
-class FakePayHeroClient:
-    def __init__(self):
-        self.register_calls = 0
-        self.register_result = {"id": 999, "is_active": True}
-
-    async def register_payment_channel(self, **kwargs):
-        self.register_calls += 1
-        return dict(self.register_result)
-
-    async def list_payment_channels(self):
-        return {"channels": []}
-
-    async def initiate_stk_push(self, **kwargs):
-        return {"success": True, "status": "QUEUED", "reference": "PHREF123", "CheckoutRequestID": "ws_CO_1"}
-
-    async def get_transaction_status(self, reference):
-        return {"status": "success"}
-
-
-@pytest.fixture
-def fake_payhero(monkeypatch):
-    fake = FakePayHeroClient()
-    import app.api.v1.payments.payhero as mod
-    monkeypatch.setattr(mod, "PayHeroClient", lambda: fake)
-    import app.integrations.payhero as integ
-    monkeypatch.setattr(integ, "PayHeroClient", lambda: fake)
-    return fake
-
-
-@pytest.mark.asyncio
-async def test_payhero_channel_auto_created(
-    client: AsyncClient, admin_auth_headers, fake_payhero
-):
-    payload = {
-        "channel_type": "till",
-        "short_code": "123456",
-        "account_number": "ACC1",
-        "description": "My till",
-    }
-    resp = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["payhero_channel_id"] == 999
-    assert data["status"] == "active"
-    assert data["is_verified"] is True
-    assert fake_payhero.register_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_payhero_channel_retry_no_duplicate(
-    client: AsyncClient, admin_auth_headers, fake_payhero
-):
-    payload = {
-        "channel_type": "till",
-        "short_code": "777",
-        "account_number": "ACC2",
-        "description": "till",
-    }
-    r1 = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert r1.status_code == 200
-    fake_payhero.register_result = {"id": None}
-    r2 = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert r2.status_code == 502
-    fake_payhero.register_result = {"id": 1001, "is_active": True}
-    r3 = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert r3.status_code == 200
-    assert r3.json()["payhero_channel_id"] == 1001
-    listing = await client.get("/api/v1/payhero/channels/local", headers=admin_auth_headers)
-    assert listing.status_code == 200
-    channels = listing.json()
-    matches = [c for c in channels if c["short_code"] == "777"]
-    assert len(matches) == 1
-
-
-@pytest.mark.asyncio
-async def test_payhero_missing_credentials_error(
-    client: AsyncClient, admin_auth_headers, monkeypatch
-):
-    class BrokenClient:
-        async def register_payment_channel(self, **kwargs):
-            raise ValueError("PayHero API credentials are not configured")
-        async def list_payment_channels(self):
-            raise ValueError("PayHero API credentials are not configured")
-    import app.api.v1.payments.payhero as mod
-    monkeypatch.setattr(mod, "PayHeroClient", lambda: BrokenClient())
-    payload = {"channel_type": "till", "short_code": "555", "account_number": "x", "description": "d"}
-    resp = await client.post("/api/v1/payhero/channels", json=payload, headers=admin_auth_headers)
-    assert resp.status_code == 502
-
-
-@pytest.mark.asyncio
-async def test_payhero_callback_unknown_reference(client: AsyncClient):
-    body = {"response": {"ExternalReference": "NOPE", "ResultCode": 0, "Status": "Success", "Amount": 10}}
-    resp = await client.post("/api/v1/payhero/callback", json=body)
-    assert resp.status_code == 200
-    assert resp.json().get("reason") == "unknown reference"
-
-
-@pytest.mark.asyncio
-async def test_payhero_initiate_rejects_foreign_channel(
-    client: AsyncClient, admin_auth_headers, fake_payhero, db_session
-):
-    # channel belongs to another org
-    from app.models.organization import Organization, OrganizationType
-    org2 = Organization(name="Other ISP", slug="other-isp", email="o@example.com", organization_type=OrganizationType.HYBRID)
-    db_session.add(org2)
-    await db_session.flush()
-    from app.models.payment_gateway import TenantPaymentChannel
-    ch = TenantPaymentChannel(
-        organization_id=org2.id,
-        channel_type="till",
-        short_code="111",
-        payhero_channel_id=555,
-        is_active=True,
-        is_verified=True,
-        status="active",
+async def create_channel(client: AsyncClient, headers, **overrides):
+    response = await client.post(
+        "/api/v1/payhero/channels",
+        json=channel_payload(**overrides),
+        headers=headers,
     )
-    db_session.add(ch)
-    await db_session.commit()
-    resp = await client.post(
-        "/api/v1/payhero/initiate",
-        json={"payhero_channel_id": 555, "amount": 100, "phone_number": "0700000000"},
+    return response
+
+
+@pytest.mark.asyncio
+async def test_channel_id_is_generated_and_not_returned(
+    client: AsyncClient, admin_auth_headers, fake_payhero, db_session
+):
+    response = await create_channel(client, admin_auth_headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "active"
+    assert data["is_verified"] is True
+    assert "payhero_channel_id" not in data
+    assert "api_token" not in data
+    assert "sandbox-token" not in response.text
+    assert fake_payhero.register_calls == 1
+    channel_result = await db_session.execute(select(TenantPaymentChannel))
+    channel = channel_result.scalar_one()
+    assert channel.payhero_channel_id == 901
+
+    local = await client.get(
+        "/api/v1/payhero/channels/local",
         headers=admin_auth_headers,
     )
-    assert resp.status_code == 404
+    assert local.status_code == 200
+    assert "payhero_channel_id" not in local.text
+    assert "sandbox-token" not in local.text
+
+
+@pytest.mark.asyncio
+async def test_retry_after_response_loss_reuses_provider_channel(
+    client: AsyncClient, admin_auth_headers, fake_payhero
+):
+    fake_payhero.fail_after_create = True
+    failed = await create_channel(client, admin_auth_headers)
+    assert failed.status_code == 502
+    assert fake_payhero.register_calls == 1
+
+    retried = await create_channel(client, admin_auth_headers)
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["status"] == "active"
+    assert fake_payhero.register_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_credentials_are_clear_and_never_returned(
+    client: AsyncClient, admin_auth_headers
+):
+    response = await create_channel(
+        client,
+        admin_auth_headers,
+        api_token="",
+    )
+    assert response.status_code == 422
+    assert "credentials" in response.text.lower()
+    assert "sandbox-token" not in response.text
+
+
+def test_generated_channel_identifier_is_internal():
+    from app.api.v1.payments.payhero import _channel_status_payload, _set_channel_result
+
+    channel = TenantPaymentChannel(
+        organization_id=1,
+        channel_type="till",
+        short_code="123456",
+        account_number="merchant-account-1",
+        status="channel_creation_pending",
+        is_active=False,
+        is_verified=False,
+    )
+
+    assert _set_channel_result(
+        channel,
+        {"id": 901, "is_active": True},
+    ) is True
+    assert channel.payhero_channel_id == 901
+    payload = _channel_status_payload(channel)
+    assert payload["status"] == "active"
+    assert "payhero_channel_id" not in payload
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_channels_and_status_are_not_visible(
+    client: AsyncClient,
+    admin_auth_headers,
+    test_organization,
+    test_admin_user,
+    db_session,
+    fake_payhero,
+):
+    channel_response = await create_channel(client, admin_auth_headers)
+    assert channel_response.status_code == 200, channel_response.text
+    channel_result = await db_session.execute(
+        select(TenantPaymentChannel).where(
+            TenantPaymentChannel.organization_id == test_organization.id
+        )
+    )
+    channel = channel_result.scalar_one()
+    db_session.add(
+        PaymentTransaction(
+            organization_id=test_organization.id,
+            tenant_payment_channel_id=channel.id,
+            transaction_reference="PH-private-reference",
+            amount=Decimal("100"),
+            currency="KES",
+            transaction_type="payment",
+            status="pending",
+            user_id=test_admin_user.id,
+        )
+    )
+    await db_session.commit()
+
+    other_org = Organization(
+        name="Other ISP",
+        slug="other-isp",
+        email="other@example.com",
+        organization_type=OrganizationType.HYBRID,
+    )
+    db_session.add(other_org)
+    await db_session.flush()
+    other_admin = User(
+        username="other-admin",
+        email="other-admin@example.com",
+        organization_id=other_org.id,
+        first_name="Other",
+        last_name="Admin",
+        hashed_password=get_password_hash("otherpassword"),
+        role=UserRole.ISP_ADMIN,
+        status=UserStatus.ACTIVE,
+        is_verified=True,
+        is_active=True,
+    )
+    db_session.add(other_admin)
+    await db_session.commit()
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": other_admin.username, "password": "otherpassword"},
+    )
+    assert login.status_code == 200
+    token = login.json()["data"]["access_token"]
+    other_headers = {"Authorization": f"Bearer {token}"}
+
+    local = await client.get("/api/v1/payhero/channels/local", headers=other_headers)
+    assert local.status_code == 200
+    assert local.json() == []
+
+    status = await client.get(
+        "/api/v1/payhero/status/PH-private-reference",
+        headers=other_headers,
+    )
+    assert status.status_code == 404
+    initiation = await client.post(
+        "/api/v1/payhero/initiate",
+        json={"amount": 100, "phone_number": "0712345678"},
+        headers=other_headers,
+    )
+    assert initiation.status_code == 409
+    callback = await client.post(
+        "/api/v1/payhero/callback",
+        json={"response": {"ExternalReference": "PH-other-tenant-reference"}},
+    )
+    assert callback.status_code == 404
+    assert fake_payhero.register_calls == 1
+    assert fake_payhero.initiate_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_unverified_callback_does_not_record_or_activate_payment(
+    client: AsyncClient,
+    admin_auth_headers,
+    test_admin_user,
+    test_organization,
+    db_session,
+    fake_payhero,
+):
+    response = await create_channel(client, admin_auth_headers)
+    assert response.status_code == 200, response.text
+    channel_result = await db_session.execute(
+        select(TenantPaymentChannel).where(
+            TenantPaymentChannel.organization_id == test_organization.id
+        )
+    )
+    channel = channel_result.scalar_one()
+    transaction = PaymentTransaction(
+        organization_id=test_organization.id,
+        tenant_payment_channel_id=channel.id,
+        transaction_reference="PH-test-unverified",
+        amount=Decimal("100"),
+        currency="KES",
+        transaction_type="payment",
+        status="pending",
+        phone_number="0712345678",
+        user_id=test_admin_user.id,
+        extra_data={
+            "payhero_reference": "provider-ref",
+            "checkout_request_id": "checkout-1",
+        },
+    )
+    db_session.add(transaction)
+    await db_session.commit()
+    fake_payhero.transaction_status = {
+        "status": "QUEUED",
+        "success": False,
+        "reference": "provider-ref",
+    }
+
+    callback = await client.post(
+        "/api/v1/payhero/callback",
+        json={
+            "status": True,
+            "response": {
+                "ExternalReference": "PH-test-unverified",
+                "CheckoutRequestID": "checkout-1",
+                "ResultCode": 0,
+                "Status": "Success",
+                "Amount": 100,
+                "Phone": "+254712345678",
+                "MpesaReceiptNumber": "TEST123",
+            },
+        },
+    )
+    assert callback.status_code == 409
+    await db_session.refresh(transaction)
+    assert transaction.status == "pending"
+    payments = await db_session.execute(
+        select(Payment).where(Payment.transaction_id == transaction.transaction_reference)
+    )
+    assert payments.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_verified_callbacks_create_one_payment(
+    client: AsyncClient,
+    admin_auth_headers,
+    test_admin_user,
+    test_organization,
+    db_session,
+    fake_payhero,
+):
+    response = await create_channel(client, admin_auth_headers)
+    assert response.status_code == 200, response.text
+    channel_result = await db_session.execute(
+        select(TenantPaymentChannel).where(
+            TenantPaymentChannel.organization_id == test_organization.id
+        )
+    )
+    channel = channel_result.scalar_one()
+    transaction = PaymentTransaction(
+        organization_id=test_organization.id,
+        tenant_payment_channel_id=channel.id,
+        transaction_reference="PH-test-duplicate",
+        amount=Decimal("100"),
+        currency="KES",
+        transaction_type="payment",
+        status="pending",
+        phone_number="0712345678",
+        user_id=test_admin_user.id,
+        extra_data={
+            "payhero_reference": "provider-ref",
+            "checkout_request_id": "checkout-1",
+        },
+    )
+    db_session.add(transaction)
+    await db_session.commit()
+    callback_body = {
+        "status": True,
+        "response": {
+            "ExternalReference": "PH-test-duplicate",
+            "CheckoutRequestID": "checkout-1",
+            "ResultCode": 0,
+            "Status": "Success",
+            "Amount": 100,
+            "Phone": "+254712345678",
+            "MpesaReceiptNumber": "TEST456",
+        },
+    }
+
+    first = await client.post("/api/v1/payhero/callback", json=callback_body)
+    second = await client.post("/api/v1/payhero/callback", json=callback_body)
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200
+    assert second.json()["status"] == "already_processed"
+    payments = await db_session.execute(
+        select(Payment).where(Payment.transaction_id == transaction.transaction_reference)
+    )
+    assert len(payments.scalars().all()) == 1

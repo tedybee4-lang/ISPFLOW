@@ -8,7 +8,37 @@ This document describes the payment gateway integrations available in ISP Billin
 |---------|------|---------|--------|
 | **Paystack** | Card, Mobile Money, Bank Transfer | ✅ Yes | Production Ready |
 | M-PESA | Mobile Money (STK Push) | No | Production Ready |
+| PayHero | Till, PayBill, Bank (M-PESA STK Push) | No | Tenant-specific setup |
 | Manual | Bank Transfer, Cash | No | Production Ready |
+
+## PayHero (tenant-specific)
+
+PayHero's official API supports creating Till, PayBill, and bank collection channels through
+`POST /api/v2/payment_channels`. It requires the merchant's PayHero account ID, a Basic Auth
+token, channel type, shortcode, account number, and description. ISPFlow stores the merchant
+token encrypted and keeps the account and generated channel ID scoped to that ISP. The
+generated channel ID is never returned by ISPFlow's configuration API or displayed in its UI.
+
+An ISP administrator configures the supported payment method, merchant details, account ID,
+and API token in **Settings → Payment Gateways → PayHero**. ISPFlow lists existing channels
+before creating one, so retrying after a lost response reuses the provider-created channel
+instead of registering a duplicate. A channel is active only after PayHero returns a valid
+channel ID and confirms it is active.
+
+PayHero's published callback documentation provides a callback payload but does not specify
+a callback signature. ISPFlow therefore does not trust callback success fields alone: it
+matches the tenant-scoped transaction reference, checkout request ID, amount, and phone, then
+queries PayHero's authenticated transaction-status API using that tenant's encrypted token
+before creating a payment record or activating a subscription. Unknown, mismatched, or
+unverified callbacks are rejected.
+
+Official documentation:
+
+- [PayHero channel registration](https://docs.payhero.co.ke/docs/register-payment-channel)
+- [PayHero payment channel listing](https://docs.payhero.co.ke/docs/get-payment-channels)
+- [PayHero STK Push request](https://docs.payhero.co.ke/docs/post-initiate-mpesa-stk-push-request)
+- [PayHero payment callback](https://docs.payhero.co.ke/docs/payment-callback)
+- [PayHero transaction status](https://docs.payhero.co.ke/docs/get-transaction-status)
 
 ## Paystack Integration
 

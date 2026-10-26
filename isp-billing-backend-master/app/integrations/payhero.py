@@ -10,13 +10,21 @@ logger = logging.getLogger(__name__)
 
 
 class PayHeroClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        authorization_token: Optional[str] = None,
+        account_id: Optional[int] = None,
+    ) -> None:
         self.base_url = (settings.payhero_base_url or "https://backend.payhero.co.ke").rstrip("/")
+        self.authorization_token = authorization_token
         self.username = settings.payhero_api_username
         self.password = settings.payhero_api_password
-        self.account_id = settings.payhero_account_id
+        self.account_id = account_id or settings.payhero_account_id
 
     def _auth_header(self) -> str:
+        if self.authorization_token:
+            token = self.authorization_token.strip()
+            return token if token.lower().startswith("basic ") else f"Basic {token}"
         if not self.username or not self.password:
             raise ValueError("PayHero API credentials are not configured")
         token = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
@@ -55,10 +63,15 @@ class PayHeroClient:
         return await self._request("POST", "/api/v2/payments", json=payload)
 
     async def get_transaction_status(self, reference: str) -> Dict[str, Any]:
-        return await self._request("GET", f"/api/v2/transactions/{reference}")
+        return await self._request(
+            "GET",
+            "/api/v2/transaction-status",
+            params={"reference": reference},
+        )
 
-    async def list_payment_channels(self) -> Dict[str, Any]:
-        return await self._request("GET", "/api/v2/payment_channels")
+    async def list_payment_channels(self, page: Optional[int] = None) -> Dict[str, Any]:
+        params = {"page": page} if page is not None else {}
+        return await self._request("GET", "/api/v2/payment_channels", params=params)
 
     async def register_payment_channel(
         self,
