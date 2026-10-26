@@ -240,7 +240,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
       <main class="workspace-main">
         <header class="workspace-toolbar">
           <div class="workspace-crumb"><span>ISPFlow</span><b>/</b><strong>${escapeHtml(tabs.find(([id]) => id === "overview")?.[1] || "Overview")}</strong></div>
-          <div class="workspace-tools">${orgHeader(isOwner, organizations, selectedSlug)}<button class="workspace-refresh" id="workspace-refresh" type="button" aria-label="Refresh data">↻ <span>Refresh</span></button></div>
+          <div class="workspace-tools">${orgHeader(isOwner, organizations, selectedSlug)}<button class="workspace-menu-toggle" id="workspace-menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="true">☰</button><button class="workspace-refresh" id="workspace-refresh" type="button" aria-label="Refresh data">↻ <span>Refresh</span></button></div>
         </header>
         ${customer ? `<section class="workspace-panel"><h2>Customer self-service</h2><p>The operator workspace is not available to customer accounts. A complete customer portal UI is not included in this frontend yet.</p><a class="button button-light" href="/docs">Review available portal API documentation</a></section>` : `
         <div class="workspace-current-org">${organization ? `Connected to <strong>${escapeHtml(organization.name)}</strong><span class="workspace-connected">● Connected</span>` : isOwner ? "Select an organization to load its tenant-scoped data." : "Tenant-scoped workspace"}</div>
@@ -1321,6 +1321,12 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
   function bindControls() {
     holder.querySelector("#logout-button")?.addEventListener("click", signOut);
     holder.querySelector("#workspace-refresh")?.addEventListener("click", loadSection);
+    holder.querySelector("#workspace-menu-toggle")?.addEventListener("click", () => {
+      const shell = holder.querySelector(".workspace-shell");
+      const collapsed = shell?.classList.toggle("sidebar-collapsed");
+      const btn = holder.querySelector("#workspace-menu-toggle");
+      if (btn) btn.setAttribute("aria-expanded", String(!collapsed));
+    });
     holder.querySelector("#workspace-org-select")?.addEventListener("change", (event) => {
       state.selectedSlug = event.target.value;
       state.activeTab = "overview";

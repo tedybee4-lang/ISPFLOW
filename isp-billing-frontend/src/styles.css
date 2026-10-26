@@ -20,8 +20,10 @@
 .workspace-section{min-height:100vh;padding:0;background:#0d1119;color:#eef1f5}
 .workspace-container{width:100%;max-width:none;padding:0}
 .workspace-content{display:block;min-height:100vh}
-.workspace-shell{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh;background:#0d1119}
-.workspace-sidebar{position:sticky;top:0;display:flex;height:100vh;flex-direction:column;padding:23px 15px 14px;border-right:1px solid #252b37;background:#111620}
+.workspace-shell{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh;background:#0d1119;transition:grid-template-columns .18s ease}
+.workspace-shell.sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}
+.workspace-shell.sidebar-collapsed .workspace-sidebar{transform:translateX(-100%);opacity:0;pointer-events:none;transition:transform .18s ease,opacity .18s ease}
+.workspace-sidebar{position:sticky;top:0;display:flex;height:100vh;flex-direction:column;padding:23px 15px 14px;border-right:1px solid #252b37;background:#111620;transition:transform .18s ease,opacity .18s ease}
 .workspace-brand{display:flex;align-items:center;gap:11px;padding:0 10px 24px;color:#f4f5f6;font-size:18px;font-weight:760;letter-spacing:-.6px;text-decoration:none}
 .workspace-brand-mark{display:grid;width:34px;height:34px;place-items:center;border-radius:10px;background:#ef973b;color:#161a20;font:800 21px Manrope,sans-serif}
 .workspace-brand small{display:block;margin-top:3px;color:#778191;font-size:8px;letter-spacing:1.4px}
@@ -43,7 +45,7 @@
 .workspace-user strong{overflow:hidden;color:#dce1e9;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .workspace-user small{color:#7d8796;font-size:9px;text-transform:capitalize}
 .workspace-signout{margin-left:auto;border:0;background:transparent;color:#818b9a;font-size:17px;cursor:pointer}
-.workspace-main{min-width:0;padding:0 31px 36px}
+.workspace-main{min-width:0;padding:0 31px 36px;font-size:15px}
 .workspace-toolbar{display:flex;min-height:66px;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid #252b36}
 .workspace-crumb{display:flex;align-items:center;gap:10px;color:#7c8796;font-size:10px}
 .workspace-crumb b{color:#4b5360;font-weight:400}
