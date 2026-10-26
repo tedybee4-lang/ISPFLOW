@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # ADDITIVE: accepted alongside the existing local HS256 JWT. The local
     # login path is unchanged; these only configure RS256 SSO acceptance.
     sso_issuer: str = "https://sso.codevertexafrica.com"
+
+    # ── CORS Configuration ─────────────────────────────────────────
+    # Frontend URL(s) allowed by CORS in production. Comma-separated list.
+    # Set via FRONTEND_URL env var, e.g.: FRONTEND_URL=https://ispflow.co.ke,https://www.ispflow.co.ke
+    frontend_url: Optional[str] = None
     # When empty, the JWKS URL is derived as <issuer>/.well-known/jwks.json.
     sso_jwks_url: Optional[str] = None
     # Audience this service expects in SSO tokens (the isp-billing client id).
@@ -86,8 +91,12 @@ class Settings(BaseSettings):
     # redirected here to choose a gateway and pay. e.g.
     # https://books.codevertexafrica.com
     treasury_pay_page_url: str = "https://books.codevertexafrica.com"
-    # Request timeout (seconds) for S2S treasury calls.
-    treasury_request_timeout: float = 20.0
+    # PayHero shared platform integration (platform-level credentials)
+    payhero_base_url: str = "https://backend.payhero.co.ke"
+    payhero_api_username: Optional[str] = None
+    payhero_api_password: Optional[str] = None
+    payhero_account_id: Optional[int] = None
+    payhero_callback_url: Optional[str] = None
     # PUBLIC, browser-reachable host the captive (unauthenticated) device polls for
     # payment-status confirmation (the treasury/books public API). This host MUST be
     # whitelisted in the MikroTik captive walled-garden, otherwise a pre-auth device
