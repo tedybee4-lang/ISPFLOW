@@ -738,7 +738,7 @@ class ReportsService:
                 Notification.sent_at < day_end,
             ]
             if org_id:
-                sms_filters.append(Notification.organization_id == org_id)
+                sms_filters.append(Notification.user.has(User.organization_id == org_id))
             sms_q = select(func.count()).select_from(Notification).where(and_(*sms_filters))
             sms_count = (await self.db.execute(sms_q)).scalar() or 0
             sms_sent_chart.append({
