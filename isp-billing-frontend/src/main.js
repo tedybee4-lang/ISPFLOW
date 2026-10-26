@@ -14,7 +14,7 @@ const featureItems = [
   ["Payment automation", "PayHero is the shared platform gateway. Tenant payment destinations are registered per ISP.", "implemented"],
   ["Invoices & billing", "Invoice and payment records can be managed through API routes; reconciliation and activation need end-to-end verification.", "partial"],
   ["Voucher management", "Voucher generation and redemption endpoints exist; allocation and settlement need operational verification.", "partial"],
-  ["Customer self-service", "Customer portal APIs cover parts of supported hotspot and PPPoE workflows; the complete customer UI is not implemented.", "partial"],
+  ["Customer self-service", "Customers can purchase hotspot access, redeem vouchers, sign in, and manage PPPoE service, usage, payments, and renewals.", "implemented"],
   ["Router monitoring", "Router status and agent-reported health are available when a router and reporting agent are configured.", "partial"],
   ["Support & tickets", "Support ticket APIs exist; SLA, escalation and staff workflow coverage remains incomplete.", "partial"],
   ["Reports & analytics", "Tenant-scoped analytics and export routes exist; metrics depend on available operational data.", "partial"],
@@ -44,7 +44,7 @@ const featureDetails = {
   tenants: ["Multi-tenant operations", "Organization models, onboarding and authorization exist. Isolation must be verified for each endpoint before production use."],
   accounting: ["Network accounting", "Accounting displays and enforcement depend on configured RouterOS/RADIUS capabilities. A network-enforced quota or accounting feed is not assumed."],
   monitoring: ["Router monitoring", "Router health depends on configured routers/agents. This local preview has no real router connected."],
-  customer: ["Customer self-service", "Customer portal APIs exist. End-to-end renewal and support workflows depend on tenant, payment and network configuration."]
+  customer: ["Customer self-service", "The customer UI covers hotspot purchase, voucher redemption and login, plus PPPoE status, usage, payments and renewals. Payment and network completion depend on provider configuration."]
 };
 
 function esc(value = "") {
@@ -86,6 +86,7 @@ function header() {
       ${routeLink("/features", "Features")}
       ${routeLink("/integrations", "Integrations")}
       ${routeLink("/pricing", "Pricing")}
+      ${routeLink("/portal", "Customer portal")}
       ${routeLink("/docs", "Documentation")}
       ${routeLink("/contact", "Contact")}
       <div class="nav-actions">${routeLink("/login", "Sign in", "nav-signin")}${routeLink("/register", "Get started", "button button-small button-dark")}</div>
@@ -219,6 +220,11 @@ function appPage() {
   return `<section class="workspace-section"><div class="container workspace-container"><div id="workspace-content" class="workspace-loading" role="status">Verifying your authenticated session…</div></div></section>`;
 }
 
+function customerPortalPage() {
+  const tenant = new URLSearchParams(location.search).get("tenant") || "";
+  return `${pageIntro("CUSTOMER SELF-SERVICE", "Connect to your ISP.", "Enter your ISP portal slug to use hotspot vouchers, sign in, purchase access, or manage a PPPoE account.")}<section class="section section-white"><div class="container narrow"><form class="form-card" id="portal-tenant-form"><div class="form-error" id="portal-tenant-error" role="alert" hidden></div><label>ISP portal slug<input name="org_slug" autocomplete="organization" required maxlength="100" pattern="[a-zA-Z0-9-]+" placeholder="your-isp" value="${esc(tenant)}"></label><button class="button button-dark button-full" type="submit">Continue to ISP portal ${icon("arrow")}</button><p class="form-note">Your ISP slug is usually included in the Wi-Fi welcome instructions or supplied by your provider.</p></form><div id="customer-portal-content" class="customer-portal-content" aria-live="polite"></div></div></section>`;
+}
+
 function notFoundPage() {
   return `${pageIntro("PAGE NOT FOUND", "This route isn't available.", "The requested page may have moved.")}<section class="section section-white"><div class="container narrow">${routeLink("/", "Back to ISPFlow home", "button button-dark")}</div></section>`;
 }
@@ -234,6 +240,7 @@ const titles = {
   "/privacy": ["Privacy | ISPFlow", "Draft privacy information for the ISPFlow local preview."],
   "/terms": ["Terms | ISPFlow", "Draft terms information for the ISPFlow local preview."],
   "/login": ["Sign in | ISPFlow", "Sign in to ISPFlow operator services."],
+  "/portal": ["Customer portal | ISPFlow", "Connect to your ISP, redeem hotspot vouchers, purchase access, or manage a PPPoE account."],
   "/register": ["Register | ISPFlow", "Register an ISP organization with ISPFlow."],
   "/forgot-password": ["Account recovery | ISPFlow", "Account recovery status for ISPFlow."],
   "/status": ["Service status | ISPFlow", "Check the local ISPFlow backend API health endpoint."],
@@ -254,6 +261,7 @@ function render() {
   else if (path === "/docs") content = docsPage();
   else if (path === "/privacy" || path === "/terms") content = legalPage(path.slice(1));
   else if (path === "/login") content = loginPage();
+  else if (path === "/portal") content = customerPortalPage();
   else if (path === "/register") content = registerPage();
   else if (path === "/forgot-password") content = forgotPasswordPage();
   else if (path === "/status") content = statusPage();
@@ -319,10 +327,173 @@ function bindPage(path) {
   }));
 
   if (path === "/login") bindLogin();
+  if (path === "/portal") bindCustomerPortal();
   if (path === "/register") bindRegistration();
   if (path === "/status") bindStatus();
   if (path === "/app") bindWorkspace();
   if (path === "/contact") bindContact();
+}
+
+function bindCustomerPortal() {
+  const lookup = document.querySelector("#portal-tenant-form");
+  const holder = document.querySelector("#customer-portal-content");
+  if (!lookup || !holder) return;
+  const state = {
+    slug: String(new FormData(lookup).get("org_slug") || "").trim(),
+    config: null,
+    packages: [],
+    accessResult: null,
+    purchase: null,
+    purchaseStatus: null,
+    notice: ""
+  };
+  const unwrap = (response) => response?.data || response || {};
+  const link = (value, label, allowHttp = false) => {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" && !(allowHttp && url.protocol === "http:")) return "";
+      return `<a class="button button-dark customer-portal-link" href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+    } catch {
+      return "";
+    }
+  };
+  const accessResultMarkup = () => {
+    if (!state.accessResult) return "";
+    const result = state.accessResult;
+    const credentials = result.success && (result.hotspot_username || result.hotspot_password);
+    return `<div class="${result.success ? "notice notice-neutral" : "form-error"}" role="status"><strong>${esc(result.message || (result.success ? "Access ready." : "Access could not be activated."))}</strong>${result.plan_name ? `<p>Package: ${esc(result.plan_name)}</p>` : ""}${result.expires_at ? `<p>Expires: ${esc(new Date(result.expires_at).toLocaleString())}</p>` : ""}${credentials ? `<dl class="customer-portal-credentials"><dt>Username</dt><dd>${esc(result.hotspot_username || "")}</dd><dt>Password</dt><dd>${esc(result.hotspot_password || "")}</dd></dl>` : ""}${result.login_url ? link(result.login_url, "Connect to hotspot", true) : ""}</div>`;
+  };
+  const render = () => {
+    const config = state.config;
+    if (!config) {
+      holder.innerHTML = state.notice ? `<div class="form-error" role="alert">${esc(state.notice)}</div>` : "";
+      return;
+    }
+    const color = /^#[0-9a-fA-F]{6}$/.test(config.primary_color || "") ? config.primary_color : "#173330";
+    const purchase = state.purchase;
+    const status = state.purchaseStatus;
+    holder.innerHTML = `<section class="customer-portal-card" style="--portal-brand:${color}"><div class="customer-portal-heading"><span class="eyebrow">ISP CUSTOMER PORTAL</span><h2>${esc(config.portal_title || config.organization_name || "Internet access")}</h2><p>${esc(config.portal_description || `Welcome to ${config.organization_name || "your ISP"}.`)}</p></div>${!config.provider_active ? `<div class="notice notice-warning" role="status">This ISP account is not currently accepting new purchases. Contact your provider to restore service.</div>` : ""}${state.notice ? `<div class="notice notice-neutral" role="status">${esc(state.notice)}</div>` : ""}${config.show_packages && state.packages.length ? `<h3>Available packages</h3><div class="customer-portal-packages">${state.packages.map((plan) => `<article class="customer-portal-package"><strong>${esc(plan.name)}</strong><p>${esc(plan.description || "Internet access")}</p><span>${esc(plan.currency || "KES")} ${esc(Number(plan.price || 0).toLocaleString())}</span><small>${esc(plan.validity_days || "—")} days · ${esc(plan.download_speed || "—")}/${esc(plan.upload_speed || "—")} Mbps</small></article>`).join("")}</div>` : ""}${config.provider_active && config.allow_guest_purchases && state.packages.length ? `<form class="form-card customer-portal-form" id="portal-purchase-form"><h3>Buy internet access</h3><div class="form-error" role="alert" hidden></div><label>Package<select name="plan_id" required>${state.packages.map((plan) => `<option value="${esc(plan.id)}">${esc(plan.name)} · ${esc(plan.currency || "KES")} ${esc(Number(plan.price || 0).toLocaleString())}</option>`).join("")}</select></label><label>Mobile money phone<input name="phone_number" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07xx xxx xxx" required></label><label>Email (optional)<input name="email" type="email" autocomplete="email" maxlength="254"></label><label>Payment method<select name="payment_method"><option value="mpesa">M-PESA</option><option value="paystack">Card / online</option></select></label><button class="button button-dark button-full" type="submit">Continue to secure payment</button></form>` : ""}${config.provider_active ? `<form class="form-card customer-portal-form" id="portal-voucher-form"><h3>Redeem a voucher</h3><div class="form-error" role="alert" hidden></div><label>Voucher code<input name="code" autocomplete="off" autocapitalize="characters" minlength="4" maxlength="50" required></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Redeem voucher</button></form><form class="form-card customer-portal-form" id="portal-login-form"><h3>Already have an account?</h3><div class="form-error" role="alert" hidden></div><label>Hotspot username<input name="username" autocomplete="username" required maxlength="50"></label><label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="255"></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Connect</button></form>` : ""}${accessResultMarkup()}${purchase ? `<section class="customer-portal-payment"><h3>Payment status</h3><p>${esc(status?.message || purchase.message || "Complete payment in the secure checkout.")}</p>${purchase.checkout_url ? link(purchase.checkout_url, "Open secure checkout") : `<p>Checkout link is unavailable. Contact your ISP with reference <strong>${esc(purchase.reference)}</strong>.</p>`}<p>Reference: <strong>${esc(purchase.reference)}</strong></p><button class="button button-light" type="button" id="portal-payment-check">Check payment status</button>${status?.is_success ? `<div class="notice notice-neutral" role="status"><strong>Payment confirmed.</strong>${status.voucher_code ? `<p>Voucher: <strong>${esc(status.voucher_code)}</strong></p>` : ""}${status.hotspot_username ? `<p>Username: ${esc(status.hotspot_username)}</p><p>Password: ${esc(status.hotspot_password || "")}</p>` : ""}${status.login_url ? link(status.login_url, "Connect to hotspot", true) : ""}</div>` : ""}</section>` : ""}</section>`;
+    if (!config.provider_active) {
+      const accessForms = `<form class="form-card customer-portal-form" id="portal-voucher-form"><h3>Redeem a voucher</h3><div class="form-error" role="alert" hidden></div><label>Voucher code<input name="code" autocomplete="off" autocapitalize="characters" minlength="4" maxlength="50" required></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Redeem voucher</button></form><form class="form-card customer-portal-form" id="portal-login-form"><h3>Already have an account?</h3><div class="form-error" role="alert" hidden></div><label>Hotspot username<input name="username" autocomplete="username" required maxlength="50"></label><label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="255"></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Connect</button></form>`;
+      const paymentSection = holder.querySelector(".customer-portal-payment");
+      if (paymentSection) paymentSection.insertAdjacentHTML("beforebegin", accessForms);
+      else holder.querySelector(".customer-portal-card")?.insertAdjacentHTML("beforeend", accessForms);
+    }
+    holder.style.setProperty("--portal-brand", color);
+    holder.querySelector("#portal-voucher-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const feedback = form.querySelector(".form-error");
+      const values = Object.fromEntries(new FormData(form).entries());
+      submit.disabled = true;
+      feedback.hidden = true;
+      try {
+        state.accessResult = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/voucher/redeem`, {
+          method: "POST",
+          body: JSON.stringify({ code: String(values.code).trim().toUpperCase(), mac_address: String(values.mac_address || "").trim() || null })
+        }));
+        state.notice = "";
+        render();
+      } catch (error) {
+        feedback.textContent = error.message || String(error);
+        feedback.hidden = false;
+        submit.disabled = false;
+      }
+    });
+    holder.querySelector("#portal-login-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const feedback = form.querySelector(".form-error");
+      const values = Object.fromEntries(new FormData(form).entries());
+      submit.disabled = true;
+      feedback.hidden = true;
+      try {
+        state.accessResult = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/login`, {
+          method: "POST",
+          body: JSON.stringify({ username: String(values.username).trim(), password: values.password, mac_address: String(values.mac_address || "").trim() || null })
+        }));
+        state.notice = "";
+        render();
+      } catch (error) {
+        feedback.textContent = error.message || String(error);
+        feedback.hidden = false;
+        submit.disabled = false;
+      }
+    });
+    holder.querySelector("#portal-purchase-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const feedback = form.querySelector(".form-error");
+      const values = Object.fromEntries(new FormData(form).entries());
+      submit.disabled = true;
+      feedback.hidden = true;
+      try {
+        state.purchase = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/purchase`, {
+          method: "POST",
+          body: JSON.stringify({
+            plan_id: Number(values.plan_id),
+            phone_number: String(values.phone_number).trim(),
+            email: String(values.email || "").trim() || null,
+            payment_method: values.payment_method
+          })
+        }));
+        if (!state.purchase.success || !state.purchase.reference) throw new Error(state.purchase.message || "Could not start payment.");
+        state.purchaseStatus = null;
+        state.accessResult = null;
+        render();
+      } catch (error) {
+        feedback.textContent = error.message || String(error);
+        feedback.hidden = false;
+        submit.disabled = false;
+      }
+    });
+    holder.querySelector("#portal-payment-check")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        state.purchaseStatus = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/payment/status?reference=${encodeURIComponent(state.purchase.reference)}`));
+        render();
+      } catch (error) {
+        state.notice = `Payment status check failed: ${error.message || String(error)}`;
+        render();
+      }
+    });
+  };
+  lookup.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = new FormData(lookup);
+    const slug = String(values.get("org_slug") || "").trim().toLowerCase();
+    const button = lookup.querySelector('button[type="submit"]');
+    const error = lookup.querySelector("#portal-tenant-error");
+    button.disabled = true;
+    error.hidden = true;
+    state.slug = slug;
+    state.notice = "";
+    state.config = null;
+    holder.innerHTML = `<div class="workspace-loading" role="status">Loading your ISP portal…</div>`;
+    try {
+      const [config, packages] = await Promise.all([
+        api(`/api/v1/portal/hotspot/${encodeURIComponent(slug)}/config`),
+        api(`/api/v1/portal/hotspot/${encodeURIComponent(slug)}/packages`)
+      ]);
+      state.config = unwrap(config);
+      state.packages = Array.isArray(unwrap(packages)) ? unwrap(packages) : [];
+      state.accessResult = null;
+      state.purchase = null;
+      state.purchaseStatus = null;
+      render();
+    } catch (requestError) {
+      error.textContent = requestError.message || String(requestError);
+      error.hidden = false;
+      holder.innerHTML = "";
+    } finally {
+      button.disabled = false;
+    }
+  });
+  if (state.slug) lookup.requestSubmit();
 }
 
 window.addEventListener("popstate", render);

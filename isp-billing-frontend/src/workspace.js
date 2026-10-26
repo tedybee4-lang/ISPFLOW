@@ -273,7 +273,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
           <div class="workspace-crumb"><span>ISPFlow</span><b>/</b><strong>${escapeHtml(tabs.find(([id]) => id === "overview")?.[1] || "Overview")}</strong></div>
           <div class="workspace-tools">${orgHeader(isOwner, organizations, selectedSlug)}<button class="workspace-menu-toggle" id="workspace-menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="${!isMobile}">☰ <span>Menu</span></button><button class="workspace-refresh" id="workspace-refresh" type="button" aria-label="Refresh data">↻ <span>Refresh</span></button></div>
         </header>
-        ${customer ? `<section class="workspace-panel"><h2>Customer self-service</h2><p>The operator workspace is not available to customer accounts. A complete customer portal UI is not included in this frontend yet.</p><a class="button button-light" href="/docs">Review available portal API documentation</a></section>` : `
+        ${customer ? `<section class="workspace-panel workspace-customer-panel"><div class="workspace-section-heading"><div><span class="workspace-kicker">CUSTOMER ACCOUNT</span><h2>Welcome, ${escapeHtml(name)}</h2><p>${escapeHtml(organization?.name || user.organization_name || "Your ISP")} · private account and billing information</p></div><button class="workspace-secondary-button" id="logout-button" type="button">Sign out</button></div><section class="workspace-customer-content" id="workspace-panel" aria-live="polite"><div class="workspace-loading">Loading your account…</div></section></section>` : `
         <div class="workspace-current-org">${organization ? `Connected to <strong>${escapeHtml(organization.name)}</strong><span class="workspace-connected">● Connected</span>` : isOwner ? "Select an organization to load its tenant-scoped data." : "Tenant-scoped workspace"}</div>
         <section class="workspace-welcome"><div><span class="workspace-kicker">NETWORK OVERVIEW</span><h1>Good to see you, ${escapeHtml(name.split(" ")[0])}</h1><p>Here is what's happening with your ISP today.</p></div><div class="workspace-welcome-date">${escapeHtml(new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }))}</div></section>
         <section class="workspace-panel" id="workspace-panel" aria-live="polite"><div class="workspace-loading">Loading live data from the backend…</div></section>`}
@@ -324,7 +324,8 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     notificationNotice: "",
     bindingRouterId: "",
     bindingNotice: "",
-    settingsNotice: ""
+    settingsNotice: "",
+    customerRenewal: null
   };
 
   const request = (path, options = {}) => {
@@ -428,6 +429,70 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     }
     panel.innerHTML = `<div class="workspace-loading" role="status">Loading live backend data…</div>`;
     try {
+      if (role === "customer") {
+        const slug = String(user.organization_slug || "");
+        if (!slug || !user.id) {
+          panel.innerHTML = renderError("Customer account", new Error("The signed-in account is missing its ISP organization context."));
+          return;
+        }
+        const customerPath = `/api/v1/portal/pppoe/${encodeURIComponent(slug)}`;
+        const query = new URLSearchParams({ user_id: String(user.id) });
+        const results = await Promise.allSettled([
+          request(`${customerPath}/dashboard?${query}`),
+          request(`${customerPath}/usage?${query}&days=30`),
+          request(`${customerPath}/payments?${query}&limit=20`),
+          request(`${customerPath}/plans?${query}`)
+        ]);
+        if (results[0].status === "rejected") throw results[0].reason;
+        const dashboard = payloadOf(results[0].value);
+        const usage = results[1].status === "fulfilled" ? listOf(results[1].value, "usage") : [];
+        const payments = results[2].status === "fulfilled" ? listOf(results[2].value, "payments") : [];
+        const plans = results[3].status === "fulfilled" ? listOf(results[3].value, "plans") : [];
+        const active = dashboard.subscription;
+        const renewal = state.customerRenewal;
+        panel.innerHTML = `${sectionHeading("Your internet account", "Review your current service, recent network usage, and payment history. Renewals activate only after the payment service verifies payment.")}${state.customerRenewalNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.customerRenewalNotice)}</div>` : ""}<div class="workspace-metrics"><div class="workspace-metric"><span>Service status</span><strong>${escapeHtml(active?.status || "No active plan")}</strong><small>${escapeHtml(active?.plan_name || "Choose a package to get started")}</small></div><div class="workspace-metric"><span>Data used this month</span><strong>${escapeHtml(dashboard.usage?.data_used_gb ?? 0)} GB</strong><small>${escapeHtml(dashboard.usage?.total_duration_hours ?? 0)} hours online</small></div><div class="workspace-metric"><span>Service ends</span><strong>${dateCell(active?.end_date)}</strong><small>Account: ${escapeHtml(dashboard.customer?.username || user.username || "Customer")}</small></div></div>${results[1].status === "rejected" ? `<div class="workspace-error" role="alert">Usage history unavailable: ${escapeHtml(results[1].reason.message || "request failed")}</div>` : table([{ label: "Date", key: "date" }, { label: "Data used", render: (item) => `${amountCell(Number(item.data_used_mb || 0) / 1024)} GB` }, { label: "Online time", render: (item) => `${amountCell(Number(item.duration || 0) / 3600)} h` }], usage, "No recent usage records.")}${results[2].status === "rejected" ? `<div class="workspace-error" role="alert">Payment history unavailable: ${escapeHtml(results[2].reason.message || "request failed")}</div>` : `<h3>Payment history</h3>${table([{ label: "Reference", key: "payment_reference" }, { label: "Description", key: "description" }, { label: "Amount", render: (item) => `${escapeHtml(item.currency || "KES")} ${amountCell(item.amount)}` }, { label: "Status", render: (item) => statusCell(item.status) }, { label: "Date", render: (item) => dateCell(item.created_at) }], payments, "No payment records were returned.")}`}${results[3].status === "rejected" ? `<div class="workspace-error" role="alert">Renewal packages unavailable: ${escapeHtml(results[3].reason.message || "request failed")}</div>` : `<form class="workspace-form" id="workspace-customer-renew-form"><h3>Renew or change your package</h3><div class="workspace-form-grid"><label>Package<select name="plan_id" required>${plans.map((plan) => `<option value="${escapeHtml(plan.id)}" ${plan.is_current ? "selected" : ""}>${escapeHtml(plan.name)} · ${escapeHtml(plan.currency)} ${amountCell(plan.price)} · ${escapeHtml(plan.validity_days)} days</option>`).join("")}</select></label><label>Mobile money phone<input name="phone_number" inputmode="tel" autocomplete="tel" maxlength="20" value="${escapeHtml(dashboard.customer?.phone || user.phone || "")}"></label></div><div class="workspace-form-feedback" role="alert" hidden></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit" ${plans.length ? "" : "disabled"}>Continue to secure payment</button></div>${plans.length ? "" : `<div class="workspace-empty">No active renewal packages are available right now.</div>`}</form>`}${renewal ? `<section class="workspace-dashboard-card workspace-customer-renewal"><h3>Payment for renewal</h3><p>${escapeHtml(renewal.message || "Complete payment to renew your service.")}</p>${renewal.checkout_url ? `<a class="workspace-primary-button workspace-payment-link" href="${escapeHtml(renewal.checkout_url)}" target="_blank" rel="noopener noreferrer">Open secure payment page</a>` : ""}${renewal.reference ? `<p>Reference: <strong>${escapeHtml(renewal.reference)}</strong></p><button type="button" class="workspace-secondary-button" id="workspace-customer-verify">Check payment status</button>` : ""}${state.customerRenewalResult ? `<div class="${state.customerRenewalResult.success ? "workspace-note" : "workspace-error"}" role="status">${escapeHtml(state.customerRenewalResult.message || state.customerRenewalResult.status || "Payment status updated.")}</div>` : ""}</section>` : ""}${results.slice(1).some((result) => result.status === "rejected") ? `<p class="workspace-note">Some account panels could not load. The error messages appear above; refresh after the service is available.</p>` : ""}`;
+        panel.querySelector("#workspace-customer-renew-form")?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const button = form.querySelector('button[type="submit"]');
+          const feedback = form.querySelector(".workspace-form-feedback");
+          const values = Object.fromEntries(new FormData(form).entries());
+          button.disabled = true;
+          feedback.hidden = true;
+          try {
+            state.customerRenewal = await request(`${customerPath}/renew?${query}`, {
+              method: "POST",
+              body: JSON.stringify({ plan_id: Number(values.plan_id), phone_number: String(values.phone_number || "").trim() })
+            });
+            state.customerRenewalResult = null;
+            state.customerRenewalNotice = "Payment intent created. Service will renew only after payment is confirmed.";
+            await loadSection();
+          } catch (error) {
+            feedback.textContent = error.message || String(error);
+            feedback.hidden = false;
+            button.disabled = false;
+          }
+        });
+        panel.querySelector("#workspace-customer-verify")?.addEventListener("click", async (event) => {
+          const button = event.currentTarget;
+          button.disabled = true;
+          try {
+            const params = new URLSearchParams({ reference: state.customerRenewal.reference });
+            state.customerRenewalResult = payloadOf(await request(`${customerPath}/payment/verify?${params}`));
+            state.customerRenewalNotice = state.customerRenewalResult.message || "Payment status checked.";
+            if (state.customerRenewalResult.success) state.customerRenewal = null;
+            await loadSection();
+          } catch (error) {
+            button.disabled = false;
+            const alert = document.createElement("div");
+            alert.className = "workspace-error";
+            alert.setAttribute("role", "alert");
+            alert.textContent = `Payment status could not be checked: ${error.message || String(error)}`;
+            panel.prepend(alert);
+          }
+        });
+        return;
+      }
       if (state.activeTab === "overview") {
         if (role === "isp_technician") {
           const [routersResult, subscriptionsResult] = await Promise.all([
@@ -1792,5 +1857,5 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
   }
 
   bindControls();
-  if (!["customer"].includes(role)) loadSection();
+  loadSection();
 }

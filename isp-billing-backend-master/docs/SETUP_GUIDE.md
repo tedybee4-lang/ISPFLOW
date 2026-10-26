@@ -78,7 +78,7 @@ after taking and verifying a backup.
 
 ## Migration and backup readiness
 
-The current Alembic graph has one head, `d2e3f4a5b6c7`. Do not treat the
+The current Alembic graph has one head, `08b9c0d1e2f3`. Do not treat the
 history as uniformly additive:
 
 - `b8c9d0e1f2a3` drops deprecated payment-gateway, licensing, and
@@ -94,6 +94,9 @@ history as uniformly additive:
   migration and runtime; downgrade is intentionally refused to avoid restoring
   reusable tokens as plaintext. Use a compatible application rollback or a
   separately reviewed recovery plan instead.
+- `08b9c0d1e2f3` makes the retired `payment_transactions.gateway_id` nullable.
+  New tenant PayHero transactions use their tenant channel association and must
+  not invent a reference to the removed legacy gateway table.
 - The other revisions add schema objects or columns. Their downgrade functions
   can still drop data added to those objects after migration. The initial
   revision creates the base schema and is for a new database, not a substitute
@@ -223,6 +226,14 @@ requests as successful. Current workflows are:
 - Captive portal settings persist through the tenant hotspot/business settings
   APIs. The sandboxed sample preview is not a deployed portal. Branding is
   read-only because its source of truth is the identity service.
+- The public `/portal` page loads an ISP by slug and supports hotspot package
+  purchase, voucher redemption, and credential login. Payment credentials or
+  hotspot access are shown only after the corresponding provider response;
+  payment status is checked against the backend.
+- Customer accounts can sign in to `/app` to see their PPPoE service, usage,
+  payment history, and renewal packages. Private PPPoE dashboard, usage,
+  payment, renewal, and verification endpoints require a customer token whose
+  account and organization match the request.
 - Voucher batches can be generated for active tenant packages; newly generated
   credentials are shown in the browser response, while inventory codes are
   masked and the inventory API omits hotspot usernames/passwords. Administrators
@@ -239,11 +250,13 @@ requests as successful. Current workflows are:
 - Usage charts are aggregates rather than a live session list.
 
 These workflows do not amount to complete ISPFlow feature parity. There is no
-safe local simulated-payment workflow, voucher redemption UI, SMS sending,
-router provisioning-script preview/deployment UI, full identity-provider owner
-invite flow, or customer self-service portal. Platform owners can manage
-persistent organization records, but creating an organization does not create
-an identity-provider owner.
+safe local simulated-payment workflow, SMS sending, router
+provisioning-script preview/deployment UI, full identity-provider owner invite
+flow, voucher-agent/commission management, standalone QoS policy management,
+TR-069/ACS, withdrawals, or a tenant audit-trail API. These capabilities need
+their owning service APIs and configuration; the frontend does not simulate
+them. Platform owners can manage persistent organization records, but creating
+an organization does not create an identity-provider owner.
 
 Platform owners must explicitly choose an organization before tenant data is
 requested. A separate local test ISP was registered through the development
@@ -254,10 +267,9 @@ value into source control. The platform-owner organization list includes
 SSO-linked tenants and locally created/onboarded organizations, excluding only
 the unlinked platform bootstrap organization.
 
-The customer self-service UI is not implemented; customers must not use the
-operator workspace. The payment API's administrator manual-record path means
-funds were already received out-of-band and may mark an invoice/subscription
-paid/active. Do not use that endpoint as a local test-payment substitute.
+The payment API's administrator manual-record path means funds were already
+received out-of-band and may mark an invoice/subscription paid/active. Do not
+use that endpoint as a local test-payment substitute.
 
 ## Security and feature status
 

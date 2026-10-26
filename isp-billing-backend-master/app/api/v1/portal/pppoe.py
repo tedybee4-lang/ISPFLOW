@@ -18,7 +18,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.api.deps_tenant import get_organization_by_slug
 from app.core.rate_limit import limit_credential_attempt
 from app.core.security import create_access_token, verify_password
@@ -29,6 +29,22 @@ from app.models.subscription import Subscription, SubscriptionStatus, Subscripti
 from app.models.billing import Payment, PaymentStatus
 
 router = APIRouter(prefix="/pppoe", tags=["Portal - PPPoE"])
+
+
+def _require_customer_access(
+    current_user: User,
+    organization: Organization,
+    requested_user_id: Optional[int] = None,
+) -> None:
+    if (
+        current_user.role != UserRole.CUSTOMER
+        or current_user.organization_id != organization.id
+        or (requested_user_id is not None and current_user.id != requested_user_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this customer account",
+        )
 
 
 # =========================================================================
@@ -249,12 +265,14 @@ async def get_dashboard(
     db: AsyncSession = Depends(get_db),
     organization: Organization = Depends(get_organization_by_slug),
     user_id: int = Query(..., description="Customer user ID"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get customer dashboard data.
 
     Includes current plan, subscription status, and quick stats.
     """
+    _require_customer_access(current_user, organization, user_id)
     # Get user
     result = await db.execute(
         select(User).where(
@@ -363,12 +381,14 @@ async def get_usage_history(
     organization: Organization = Depends(get_organization_by_slug),
     user_id: int = Query(..., description="Customer user ID"),
     days: int = Query(30, description="Number of days to fetch", ge=1, le=90),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get usage history for the last N days.
 
     Returns daily usage breakdown.
     """
+    _require_customer_access(current_user, organization, user_id)
     # Get active subscription
     sub_result = await db.execute(
         select(Subscription)
@@ -418,12 +438,14 @@ async def get_payment_history(
     organization: Organization = Depends(get_organization_by_slug),
     user_id: int = Query(..., description="Customer user ID"),
     limit: int = Query(10, description="Number of payments to fetch", ge=1, le=100),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get payment history.
 
     Returns list of recent payments.
     """
+    _require_customer_access(current_user, organization, user_id)
     result = await db.execute(
         select(Payment)
         .where(
@@ -458,12 +480,14 @@ async def get_available_plans(
     db: AsyncSession = Depends(get_db),
     organization: Organization = Depends(get_organization_by_slug),
     user_id: int = Query(..., description="Customer user ID"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get available PPPoE plans for renewal.
 
     Includes indication of which plan is current.
     """
+    _require_customer_access(current_user, organization, user_id)
     # Get user's current subscription
     sub_result = await db.execute(
         select(Subscription)
@@ -516,6 +540,7 @@ async def renew_subscription(
     db: AsyncSession = Depends(get_db),
     organization: Organization = Depends(get_organization_by_slug),
     user_id: int = Query(..., description="Customer user ID"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Renew subscription with a new or same plan via treasury-api.
@@ -529,6 +554,7 @@ async def renew_subscription(
     from app.models.billing import PaymentMethod
     from app.services.treasury_topup import create_topup_intent
 
+    _require_customer_access(current_user, organization, user_id)
     # Get plan
     plan_result = await db.execute(
         select(ServicePlan).where(
@@ -625,6 +651,7 @@ async def verify_pppoe_payment(
     reference: str = Query(..., description="Payment reference"),
     db: AsyncSession = Depends(get_db),
     organization: Organization = Depends(get_organization_by_slug),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Verify a PPPoE renewal payment via treasury-api.
@@ -637,6 +664,7 @@ async def verify_pppoe_payment(
     import logging
     from app.services.treasury_topup import get_intent_status, SUCCESS_STATUSES, FAILURE_STATUSES
 
+    _require_customer_access(current_user, organization)
     logger = logging.getLogger(__name__)
 
     # 1. Find the payment record
@@ -644,6 +672,7 @@ async def verify_pppoe_payment(
         select(Payment).where(
             Payment.reference_number == reference,
             Payment.organization_id == organization.id,
+            Payment.user_id == current_user.id,
         )
     )
     payment = result.scalar_one_or_none()

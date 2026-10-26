@@ -315,3 +315,31 @@
 .workspace-portal-preview.workspace-portal-mobile{width:min(390px,100%);margin:0 auto}
 .workspace-form-wide{grid-column:1/-1}
 @media(max-width:760px){.workspace-portal-preview{height:520px}}
+.workspace-customer-panel{max-width:100%;padding:clamp(16px,3vw,30px)}
+.workspace-customer-content{display:grid;gap:16px;min-width:0}
+.workspace-customer-content>.workspace-section-heading{margin-bottom:2px}
+.workspace-customer-renewal{padding:16px}
+.workspace-customer-renewal h3{margin-top:0}
+.workspace-payment-link{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 12px;border-radius:6px;background:#e99745;color:#161a20;font-size:10px;font-weight:700}
+.workspace-payment-link:hover{background:#f2a655}
+.customer-portal-content{display:grid;gap:18px}
+.customer-portal-card{--portal-brand:#173330;display:grid;gap:18px;padding:clamp(16px,4vw,28px);border:1px solid #e1e8df;border-radius:12px;background:#fff;box-shadow:0 14px 44px rgba(20,49,42,.08)}
+.customer-portal-heading{padding-bottom:14px;border-bottom:1px solid #edf0eb}
+.customer-portal-heading h2{margin:9px 0;color:var(--portal-brand);font:750 clamp(24px,5vw,36px)/1.15 Manrope,sans-serif}
+.customer-portal-heading p{margin:0;color:#718078;font-size:13px;line-height:1.6}
+.customer-portal-card h3{margin:0;color:#27473c;font:700 17px Manrope,sans-serif}
+.customer-portal-packages{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.customer-portal-package{display:grid;gap:6px;padding:14px;border:1px solid #e7ece5;border-radius:8px;background:#fbfcfa}
+.customer-portal-package strong{color:#24453b}
+.customer-portal-package p{margin:0;color:#718078;font-size:11px;line-height:1.5}
+.customer-portal-package>span{color:var(--portal-brand);font-size:16px;font-weight:750}
+.customer-portal-package small{color:#829087;font-size:10px}
+.customer-portal-form{margin:0}
+.customer-portal-credentials{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 12px;margin:14px 0}
+.customer-portal-credentials dt{color:#718078;font-size:11px}
+.customer-portal-credentials dd{margin:0;overflow-wrap:anywhere;color:#24453b;font-family:ui-monospace,Consolas,monospace;font-weight:700}
+.customer-portal-payment{display:grid;gap:10px;padding:16px;border:1px solid #e7ece5;border-radius:8px;background:#fbfcfa}
+.customer-portal-payment h3,.customer-portal-payment p{margin:0}
+.customer-portal-link{width:max-content;max-width:100%;min-height:40px;font-size:12px}
+.customer-portal-card .notice{margin:0}
+@media(max-width:560px){.customer-portal-packages{grid-template-columns:1fr}.customer-portal-link{width:100%}.workspace-customer-panel>.workspace-section-heading{align-items:flex-start}}
