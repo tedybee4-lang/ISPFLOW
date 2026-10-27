@@ -42,3 +42,8 @@ Configure HTTPS with certbot after DNS points to this server.
 
 ## Rollback
 Use `/tmp/ispflow-previous-commit` to reset the previous application commit, then restart services. Database downgrades are not automatic and require a reviewed restore procedure.
+
+## HTTPS
+Run certbot after DNS is live:
+certbot --nginx --non-interactive --agree-tos --redirect -m admin@ispflow.co.ke -d ispflow.co.ke -d www.ispflow.co.ke -d api.ispflow.co.ke
+
