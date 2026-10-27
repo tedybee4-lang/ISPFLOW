@@ -118,6 +118,18 @@ class ServicePlanBase(BaseModel):
             raise ValueError("Currency code must be 3 characters")
         return v.upper()
 
+    @validator("plan_type", pre=True)
+    def normalize_plan_type(cls, v):
+        if isinstance(v, str):
+            return v.strip().upper()
+        return v
+
+    @validator("billing_cycle", pre=True)
+    def normalize_billing_cycle(cls, v):
+        if isinstance(v, str):
+            return v.strip().upper()
+        return v
+
     @validator("fup_threshold")
     def validate_fup_threshold(cls, v, values):
         """Validate FUP threshold."""
