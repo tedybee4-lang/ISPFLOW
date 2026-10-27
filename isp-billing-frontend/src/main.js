@@ -570,6 +570,37 @@ function bindRegistration() {
   });
 }
 
+async function bindWorkspace() {
+  const holder = document.querySelector("#workspace-content");
+  const token = sessionStorage.getItem("ispflow.access");
+  if (!token) {
+    history.replaceState({}, "", "/login");
+    render();
+    return;
+  }
+  try {
+    const response = await api("/api/v1/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+    const user = response.data || response;
+    holder.className = "workspace-content";
+    await mountWorkspace(holder, { user, token, api, apiBase: API_BASE });
+  } catch (error) {
+    if (String(error.message || "").startsWith("401:")) {
+      sessionStorage.removeItem("ispflow.access");
+      sessionStorage.removeItem("ispflow.refresh");
+      history.replaceState({}, "", "/login");
+      render();
+      return;
+    }
+    holder.className = "workspace-content";
+    holder.innerHTML = `<section class="workspace-panel"><div class="workspace-error" role="alert"><strong>Workspace could not connect.</strong><p>${esc(error.message || String(error))}</p><a class="button button-light" href="/login" data-route>Return to sign in</a></div></section>`;
+    holder.querySelector("[data-route]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      history.pushState({}, "", "/login");
+      render();
+    });
+  }
+}
+
 function bindContact() {
   const form = document.querySelector("#contact-form");
   if (!form) return;
