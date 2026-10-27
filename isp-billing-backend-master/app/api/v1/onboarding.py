@@ -599,3 +599,141 @@ async def resend_verification_code(
         success=True,
         message=f"New verification code sent to {data.email}."
     )
+
+
+
+class RegisterRequest(BaseModel):
+    """Simplified ISP registration without email verification."""
+
+    full_name: str = Field(..., min_length=2, max_length=200)
+    business_name: str = Field(..., min_length=2, max_length=200)
+    business_type: OrganizationType = OrganizationType.HYBRID
+    phone: str = Field(..., pattern=r"^\+?[1-9]\d{1,14}$")
+    password: str = Field(..., min_length=8)
+    confirm_password: str
+
+    @field_validator("confirm_password")
+    @classmethod
+    def passwords_match(cls, v, info):
+        if "password" in info.data and v != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
+
+@router.post("/register", response_model=OnboardingCompleteResponse)
+async def register_isp(
+    data: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Register an ISP, create its organization, and return an access token."""
+    import re
+
+    phone = data.phone.strip()
+    if not phone.startswith("+"):
+        phone = "+" + phone.lstrip("0")
+
+    # Uniqueness checks
+    existing_user = await db.execute(
+        select(func.count(User.id)).where(
+            (User.phone == phone) | (User.username == phone)
+        )
+    )
+    if existing_user.scalar() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This phone number is already registered.",
+        )
+
+    full_name = data.full_name.strip()
+    name_parts = full_name.split(None, 1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else first_name
+
+    base_slug = data.business_name.lower().replace(" ", "-")
+    base_slug = "".join(c for c in base_slug if c.isalnum() or c == "-")
+    slug = base_slug
+    counter = 1
+    while True:
+        result = await db.execute(
+            select(func.count(Organization.id)).where(Organization.slug == slug)
+        )
+        if result.scalar() == 0:
+            break
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    trial_days = get_default_trial_days()
+    trial_ends_at = datetime.utcnow() + timedelta(days=trial_days)
+
+    try:
+        organization = Organization(
+            name=data.business_name,
+            slug=slug,
+            organization_type=data.business_type,
+            status=OrganizationStatus.TRIAL,
+            email=f"{phone}@ispflow.local",
+            phone=phone,
+            country="Kenya",
+            trial_ends_at=trial_ends_at,
+            max_routers=5,
+            max_customers=50,
+            max_users=3,
+            features={},
+        )
+        db.add(organization)
+        await db.flush()
+
+        role_result = await db.execute(select(Role).where(Role.name == "admin"))
+        admin_role = role_result.scalar_one_or_none()
+        if admin_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account roles are not initialized.",
+            )
+
+        admin_user = User(
+            organization_id=organization.id,
+            email=None,
+            username=phone,
+            phone=phone,
+            hashed_password=get_password_hash(data.password),
+            first_name=first_name,
+            last_name=last_name,
+            company_name=data.business_name,
+            role=UserRole.ISP_ADMIN,
+            role_id=admin_role.id,
+            status=UserStatus.ACTIVE,
+            is_verified=True,
+            is_active=True,
+        )
+        db.add(admin_user)
+        await db.flush()
+
+        from app.models.organization import OrganizationSettings
+
+        org_settings = OrganizationSettings(organization_id=organization.id)
+        db.add(org_settings)
+
+        await db.commit()
+        await db.refresh(organization)
+        await db.refresh(admin_user)
+    except Exception:
+        await db.rollback()
+        raise
+
+    token = create_access_token(
+        data={
+            "sub": str(admin_user.id),
+            "username": admin_user.username,
+            "organization_id": organization.id,
+            "role": admin_user.role.value,
+        }
+    )
+
+    return OnboardingCompleteResponse(
+        success=True,
+        message=f"Welcome to ISPFlow! Your {trial_days}-day free trial has started.",
+        organization_id=organization.id,
+        organization_slug=organization.slug,
+        access_token=token,
+    )

@@ -61,7 +61,7 @@ class User(Base):
 
     # Basic information
     username = Column(String(50), unique=True, index=True, nullable=False)
-    email = Column(String(100), unique=True, index=True, nullable=False)
+    email = Column(String(100), unique=True, index=True, nullable=True)
     phone = Column(String(20), unique=True, index=True, nullable=True)
     first_name = Column(String(50), nullable=False)
     last_name = Column(String(50), nullable=False)

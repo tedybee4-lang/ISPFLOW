@@ -213,7 +213,7 @@ function loginPage() {
 }
 
 function registerPage() {
-  return `${pageIntro("ISP ACCOUNT REGISTRATION", "Start with the details.<br>Configure the network later.", "Create an ISP organization and its first operator account. Router and payment setup are optional for browsing and onboarding.")}<section class="section section-white"><div class="container narrow"><div class="stepper" id="signup-stepper"><span class="active">1 <i>Verify email</i></span><b></b><span>2 <i>Business</i></span><b></b><span>3 <i>Owner account</i></span></div><div id="signup-content"></div><p class="form-note">Email verification depends on the backend's configured delivery channel. The local development backend may return a development-only code; production must deliver it through a verified provider.</p></div></section>`;
+  return `${pageIntro("ISP ACCOUNT REGISTRATION", "Start with the details.<br>Configure the network later.", "Create an ISP organization and its first operator account. Router and payment setup are optional for browsing and onboarding.")}<section class="section section-white"><div class="container narrow"><form class="form-card" id="register-form"><div class="form-error" id="register-error" role="alert" hidden></div><label>Full name<input name="full_name" required minlength="2" maxlength="200" autocomplete="name"></label><label>Organisation / ISP business name<input name="business_name" required minlength="2" maxlength="200" autocomplete="organization"></label><label>Phone number<input name="phone" type="tel" required autocomplete="tel" placeholder="+254712345678" pattern="\+?[1-9][0-9]{1,14}"></label><label>Organisation type<select name="business_type"><option value="hybrid">Hotspot and PPPoE</option><option value="hotspot">Hotspot</option><option value="pppoe">PPPoE</option></select></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>Confirm password<input name="confirm_password" type="password" required minlength="8" autocomplete="new-password"></label><button class="button button-dark button-full" type="submit">Create organisation and account ${icon("arrow")}</button><div class="form-links">${routeLink("/login", "Already have an account? Sign in")}</div></form></div></section>`;
 }
 
 function appPage() {
@@ -535,140 +535,39 @@ function bindLogin() {
 }
 
 function bindRegistration() {
-  const holder = document.querySelector("#signup-content");
-  const stepper = document.querySelector("#signup-stepper");
-  const state = { step: 1, email: "", verificationCode: "", business: null };
-  const setStep = (step) => {
-    state.step = step;
-    [...stepper.querySelectorAll("span")].forEach((item, index) => {
-      item.classList.toggle("active", index + 1 <= step);
-      item.classList.toggle("complete", index + 1 < step);
-    });
-    draw();
-  };
-  const message = (text, kind = "neutral") => `<div class="notice notice-${kind}" role="status">${icon("shield")}<span>${esc(text)}</span></div>`;
-  const bindSubmit = (selector, action) => {
-    const form = holder.querySelector(selector);
-    form?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const button = form.querySelector("button[type=submit]");
-      const feedback = form.querySelector(".form-error");
-      button.disabled = true;
-      button.textContent = "Please wait…";
-      feedback.hidden = true;
-      try {
-        await action(new FormData(form));
-      } catch (error) {
-        feedback.textContent = error.message;
-        feedback.hidden = false;
-        button.disabled = false;
-        button.textContent = form.dataset.button || "Continue";
-      }
-    });
-  };
-  function draw(info = "") {
-    const prefix = info;
-    if (state.step === 1) {
-      holder.innerHTML = `${prefix}<form class="form-card" id="signup-email"><div class="form-error" role="alert" hidden></div><label>Work email<input name="email" type="email" autocomplete="email" required maxlength="254" value="${esc(state.email)}"></label><button class="button button-dark button-full" data-button="Send verification code" type="submit">Send verification code ${icon("arrow")}</button></form>`;
-      bindSubmit("#signup-email", async (form) => {
-        const email = String(form.get("email")).trim().toLowerCase();
-        const check = await api("/api/v1/onboarding/check-email", { method: "POST", body: JSON.stringify({ email }) });
-        if (!check.available) throw new Error(check.message || "This email is already registered.");
-        const sent = await api("/api/v1/onboarding/send-verification", { method: "POST", body: JSON.stringify({ email }) });
-        state.email = email;
-        const devCode = sent.message?.match(/\[DEV:\s*(\d{6})\]/)?.[1];
-        state.verificationCode = devCode || "";
-        setStep(1.5);
-        draw(`${message(devCode ? `Development-only email verification code: ${devCode}` : sent.message, devCode ? "warning" : "neutral")}`);
-      });
-    } else if (state.step === 1.5) {
-      holder.innerHTML = `${prefix}<form class="form-card" id="signup-verify"><div class="form-error" role="alert" hidden></div><p class="form-note">Enter the six-digit code sent to <strong>${esc(state.email)}</strong>.</p><label>Verification code<input name="verification_code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required value="${esc(state.verificationCode)}"></label><button class="button button-dark button-full" data-button="Verify email" type="submit">Verify email ${icon("arrow")}</button><button class="link-button" type="button" id="signup-back">Use a different email</button></form>`;
-      bindSubmit("#signup-verify", async (form) => {
-        await api("/api/v1/onboarding/verify-code", { method: "POST", body: JSON.stringify({ email: state.email, verification_code: form.get("verification_code") }) });
-        setStep(2);
-      });
-      holder.querySelector("#signup-back").addEventListener("click", () => { state.email = ""; state.verificationCode = ""; setStep(1); });
-    } else if (state.step === 2) {
-      holder.innerHTML = `${prefix}<form class="form-card" id="signup-business"><div class="form-error" role="alert" hidden></div><label>ISP or business name<input name="business_name" required minlength="2" maxlength="200" autocomplete="organization"></label><label>Access method<select name="business_type" required><option value="hybrid">Hotspot and PPPoE</option><option value="hotspot">Hotspot</option><option value="pppoe">PPPoE</option></select></label><label>Phone number<input name="phone" type="tel" autocomplete="tel" placeholder="+254712345678" pattern="\\+?[1-9][0-9]{1,14}" required></label><div class="form-row"><label>Country<input name="country" value="Kenya" maxlength="100" required></label><label>City <span class="optional">(optional)</span><input name="city" maxlength="100"></label></div><button class="button button-dark button-full" data-button="Save business details" type="submit">Save business details ${icon("arrow")}</button></form>`;
-      bindSubmit("#signup-business", async (form) => {
-        state.business = Object.fromEntries(form.entries());
-        await api("/api/v1/onboarding/business-details", { method: "POST", body: JSON.stringify({ email: state.email, ...state.business }) });
-        setStep(3);
-      });
-    } else {
-      holder.innerHTML = `${prefix}<form class="form-card" id="signup-owner"><div class="form-error" role="alert" hidden></div><p class="form-note">Create the first organization owner account for <strong>${esc(state.email)}</strong>.</p><div class="form-row"><label>First name<input name="admin_first_name" autocomplete="given-name" required minlength="1" maxlength="100"></label><label>Last name<input name="admin_last_name" autocomplete="family-name" required minlength="1" maxlength="100"></label></div><label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" required><small>Use at least 12 characters for this account.</small></label><label>Confirm password<input name="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label><button class="button button-dark button-full" data-button="Create operator account" type="submit">Create operator account ${icon("arrow")}</button></form><div class="setup-optional"><b>Network setup can wait.</b><p>Routers, payment providers and Hotspot/PPPoE configuration are optional while browsing. Configure them later in a controlled environment.</p></div>`;
-      bindSubmit("#signup-owner", async (form) => {
-        const password = form.get("password");
-        if (password !== form.get("confirm_password")) throw new Error("Passwords do not match.");
-        const result = await api("/api/v1/onboarding/security-setup", { method: "POST", body: JSON.stringify({
-          email: state.email,
-          admin_first_name: form.get("admin_first_name"),
-          admin_last_name: form.get("admin_last_name"),
-          password,
-          confirm_password: form.get("confirm_password")
-        }) });
-        if (!result.access_token) throw new Error("The organization was created but the API did not return a login token. Contact your administrator.");
-        sessionStorage.setItem("ispflow.access", result.access_token);
-        history.pushState({}, "", "/app");
-        render();
-      });
-    }
-  }
-  draw();
-}
-
-function bindStatus() {
-  const button = document.querySelector("#status-refresh");
-  const check = async () => {
-    const label = document.querySelector("#api-state");
-    const detail = document.querySelector("#api-detail");
-    const dot = document.querySelector("#api-dot");
+  const form = document.querySelector("#register-form");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const errorBox = document.querySelector("#register-error");
+    const button = form.querySelector("button[type=submit]");
+    errorBox.hidden = true;
     button.disabled = true;
-    label.textContent = "Checking backend…";
+    button.textContent = "Creating...";
+    const values = new FormData(form);
     try {
-      const result = await api("/health");
-      label.textContent = `Backend API: ${result.status || "responding"}`;
-      detail.textContent = `Health endpoint returned successfully${result.version ? ` (version ${result.version})` : ""}. This does not verify routers, workers or payment providers.`;
-      dot.classList.add("healthy");
+      const response = await api("/api/v1/onboarding/register", {
+        method: "POST",
+        body: JSON.stringify({
+          full_name: values.get("full_name"),
+          business_name: values.get("business_name"),
+          business_type: values.get("business_type"),
+          phone: values.get("phone"),
+          password: values.get("password"),
+          confirm_password: values.get("confirm_password")
+        })
+      });
+      const data = response.data || response;
+      if (!data.access_token) throw new Error("Registration succeeded but no access token was returned.");
+      sessionStorage.setItem("ispflow.access", data.access_token);
+      history.pushState({}, "", "/app");
+      render();
     } catch (error) {
-      label.textContent = "Backend API: unavailable";
-      detail.textContent = `Could not verify the backend: ${error.message}`;
-      dot.classList.remove("healthy");
-    } finally { button.disabled = false; }
-  };
-  button?.addEventListener("click", check);
-  check();
-}
-
-async function bindWorkspace() {
-  const holder = document.querySelector("#workspace-content");
-  const token = sessionStorage.getItem("ispflow.access");
-  if (!token) {
-    history.replaceState({}, "", "/login");
-    render();
-    return;
-  }
-  try {
-    const response = await api("/api/v1/auth/me", { headers: { Authorization: `Bearer ${token}` } });
-    const user = response.data || response;
-    holder.className = "workspace-content";
-    await mountWorkspace(holder, { user, token, api, apiBase: API_BASE });
-  } catch (error) {
-    if (String(error.message || "").startsWith("401:")) {
-      sessionStorage.removeItem("ispflow.access");
-      sessionStorage.removeItem("ispflow.refresh");
-      history.replaceState({}, "", "/login");
-      render();
-      return;
+      errorBox.textContent = error.message || "Registration failed. Check your details and try again.";
+      errorBox.hidden = false;
+      button.disabled = false;
+      button.textContent = "Create organisation and account";
     }
-    holder.className = "workspace-content";
-    holder.innerHTML = `<section class="workspace-panel"><div class="workspace-error" role="alert"><strong>Workspace could not connect.</strong><p>${esc(error.message || String(error))}</p><a class="button button-light" href="/login" data-route>Return to sign in</a></div></section>`;
-    holder.querySelector("[data-route]")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      history.pushState({}, "", "/login");
-      render();
-    });
-  }
+  });
 }
 
 function bindContact() {

@@ -63,6 +63,9 @@ class AuthService:
         Eagerly load RBAC relationships to avoid async lazy-loads that require greenlet.
         """
         try:
+            identifier = username_or_email.strip()
+            if identifier and not identifier.startswith("+") and identifier.isdigit():
+                identifier = "+" + identifier.lstrip("0")
             # Try to find user by username or email and eagerly load role and permissions
             from sqlalchemy.orm import selectinload
             from app.models.rbac import Role, UserPermission
@@ -70,7 +73,9 @@ class AuthService:
             query = (
                 select(User)
                 .where(
-                    (User.email == username_or_email) | (User.username == username_or_email),
+                    (User.email == identifier) |
+                    (User.username == identifier) |
+                    (User.phone == identifier),
                     User.is_active.is_(True)
                 )
                 .options(

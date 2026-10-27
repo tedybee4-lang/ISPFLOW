@@ -91,6 +91,8 @@ function planFormMarkup(plan = {}) {
       <label>Billing cycle<select name="billing_cycle">${["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY", "ONE_TIME"].map((cycle) => `<option value="${cycle}" ${plan.billing_cycle === cycle ? "selected" : ""}>${cycle.replaceAll("_", " ").toLowerCase()}</option>`).join("")}</select></label>
       <label>Download speed (Kbps)<input name="download_speed" type="number" min="0" step="1" required value="${escapeHtml(plan.download_speed ?? "0")}"></label>
       <label>Upload speed (Kbps)<input name="upload_speed" type="number" min="0" step="1" required value="${escapeHtml(plan.upload_speed ?? "0")}"></label>
+      <label>Validity value<input name="validity_value" type="number" min="1" step="1" required value="${escapeHtml(plan.duration_minutes ? plan.duration_minutes : (plan.validity_days ?? 30))}"></label>
+      <label>Validity unit<select name="validity_unit">${["minutes","hours","days","months"].map((unit) => `<option value="${unit}" ${(plan.duration_minutes && unit === "minutes") || (!plan.duration_minutes && unit === "days") ? "selected" : ""}>${unit}</option>`).join("")}</select></label>
       <label>Validity (days)<input name="validity_days" type="number" min="1" step="1" required value="${escapeHtml(plan.validity_days ?? "30")}"></label>
       <label>Duration override (minutes)<input name="duration_minutes" type="number" min="1" step="1" value="${escapeHtml(plan.duration_minutes ?? "")}"><small>Optional; takes precedence over whole-day validity.</small></label>
       <label>Data limit (GB; -1 unlimited)<input name="data_limit" type="number" min="-1" step="1" value="${escapeHtml(plan.data_limit ?? "-1")}"></label>
@@ -194,13 +196,10 @@ function routerFormMarkup(router = {}) {
 }
 
 function portalPreviewDocument(organization, settings, terms) {
-  const title = escapeHtml(organization?.name || "Sample ISP");
-  const color = /^#[0-9a-fA-F]{6}$/.test(organization?.primary_color || "")
-    ? organization.primary_color
-    : "#1f5146";
-  return `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:24px;background:#f1f5f2;font:14px Arial,sans-serif;color:#243a34}.card{max-width:360px;margin:14px auto;padding:24px;background:#fff;border-radius:16px;box-shadow:0 12px 36px #18372a22}h1{font-size:22px;margin:0 0 6px;color:${color}}p{color:#62736c;line-height:1.5}.sample{font-size:10px;font-weight:bold;letter-spacing:1px;color:#788c82}.plan{padding:12px;margin:10px 0;border:1px solid #dce6df;border-radius:8px}.plan strong{display:block;margin-bottom:5px}label{display:block;margin:12px 0 5px}input{width:100%;padding:11px;border:1px solid #cedbd2;border-radius:7px}button{width:100%;padding:12px;border:0;border-radius:7px;background:${color};color:white;font-weight:bold;margin-top:10px}.terms{max-height:75px;overflow:auto;font-size:11px;white-space:pre-wrap;color:#67766f}</style><body><main class="card"><div class="sample">LOCAL PREVIEW · SAMPLE DATA</div><h1>${title}</h1><p>Connect to this Wi-Fi network and choose an internet package.</p>${settings?.show_packages_on_portal ? `<div class="plan"><strong>Sample daily access</strong>Illustrative package only · price from configured plan list</div>` : ""}<label>Username</label><input aria-label="Sample username" placeholder="Enter username"><label>Password or voucher</label><input aria-label="Sample password or voucher" placeholder="Enter password"><button type="button" disabled>Continue to configured hotspot flow</button><h2 style="font-size:14px;margin:18px 0 5px">Terms</h2><div class="terms">${escapeHtml(terms || "Terms have not been configured.")}</div><p class="sample">Preview only. Not deployed to a router.</p></main></body></html>`;
+  const slug = organization?.slug || "";
+  const portalUrl = `${location.origin}/portal${slug ? `?tenant=${encodeURIComponent(slug)}` : ""}`;
+  return `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;height:100vh;overflow:hidden;font:14px Arial,sans-serif}iframe{width:100%;height:100vh;border:0}</style><body><iframe src="${portalUrl}" title="${escapeHtml(organization?.name || "ISP")} captive portal preview" loading="lazy"></iframe></body></html>`;
 }
-
 function table(columns, rows, empty = "No records were returned.") {
   if (!rows.length) return `<div class="workspace-empty">${escapeHtml(empty)}</div>`;
   const visibleColumns = columns.filter((column) => column.key !== "payhero_channel_id");
@@ -255,7 +254,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
   return `<div class="workspace-shell ${isMobile ? "sidebar-collapsed" : ""}">
       <aside class="workspace-sidebar">
         <a class="workspace-brand" href="/app" aria-label="ISPFlow workspace"><span class="workspace-brand-mark">I</span><span>ispflow<small>NETWORK CONSOLE</small></span></a>
-        <div class="workspace-tenant-chip"><span class="workspace-online-dot"></span><div><small>WORKSPACE</small><strong>${escapeHtml(organization?.name || (isOwner ? "Select organization" : "ISP Operations"))}</strong></div></div>
+        <div class="workspace-tenant-chip"><span class="workspace-online-dot"></span><div><small>WORKSPACE</small><strong>${escapeHtml(organization?.name || user.organization_name || (isOwner ? "Select organization" : "ISP Operations"))}</strong></div></div>
         <nav class="workspace-tabs" aria-label="Operator workspace">
           ${nav("OVERVIEW", tabsToShow.filter(([id]) => id === "overview"))}
           ${nav("PLATFORM", tabsToShow.filter(([id]) => id === "organizations"))}
@@ -275,7 +274,7 @@ function workspaceMarkup(user, organizations, selectedSlug) {
         </header>
         ${customer ? `<section class="workspace-panel workspace-customer-panel"><div class="workspace-section-heading"><div><span class="workspace-kicker">CUSTOMER ACCOUNT</span><h2>Welcome, ${escapeHtml(name)}</h2><p>${escapeHtml(organization?.name || user.organization_name || "Your ISP")} · private account and billing information</p></div><button class="workspace-secondary-button" id="logout-button" type="button">Sign out</button></div><section class="workspace-customer-content" id="workspace-panel" aria-live="polite"><div class="workspace-loading">Loading your account…</div></section></section>` : `
         <div class="workspace-current-org">${organization ? `Connected to <strong>${escapeHtml(organization.name)}</strong><span class="workspace-connected">● Connected</span>` : isOwner ? "Select an organization to load its tenant-scoped data." : "Tenant-scoped workspace"}</div>
-        <section class="workspace-welcome"><div><span class="workspace-kicker">NETWORK OVERVIEW</span><h1>Good to see you, ${escapeHtml(name.split(" ")[0])}</h1><p>Here is what's happening with your ISP today.</p></div><div class="workspace-welcome-date">${escapeHtml(new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }))}</div></section>
+        <section class="workspace-welcome"><div><span class="workspace-kicker">NETWORK OVERVIEW</span><h1>Good to see you, ${escapeHtml(user.organization_name || (name.split(" ")[0]))}!</h1><p>Welcome back. Here's what's happening with your ISP today.</p></div><div class="workspace-welcome-date">${escapeHtml(new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }))}</div></section>
         <section class="workspace-panel" id="workspace-panel" aria-live="polite"><div class="workspace-loading">Loading live data from the backend…</div></section>`}
       </div>
     </div>`;
@@ -822,6 +821,15 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           for (const field of ["duration_minutes", "fup_threshold", "fup_download_speed", "fup_upload_speed"]) {
             body[field] = body[field] === "" ? null : Number(body[field]);
           }
+          const validityMultipliers = { minutes: 1, hours: 60, days: 1440, months: 43200 };
+          const validityValue = Number(body.validity_value || 0);
+          const validityUnit = String(body.validity_unit || "days");
+          if (validityValue > 0) {
+            body.duration_minutes = validityValue * (validityMultipliers[validityUnit] || 1440);
+            body.validity_days = Math.max(1, Math.ceil((validityValue * (validityMultipliers[validityUnit] || 1440)) / 1440));
+          }
+          delete body.validity_value;
+          delete body.validity_unit;
           body.fup_enabled = body.fup_enabled === "true";
           body.currency = String(body.currency).trim().toUpperCase();
           body.name = String(body.name).trim();
@@ -1123,7 +1131,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
             <label class="workspace-form-wide">Terms shown in local preview<textarea name="terms_and_conditions" maxlength="10000" rows="5">${escapeHtml(business.terms_and_conditions || "")}</textarea></label>
           </div>
           <div class="workspace-form-feedback" role="alert" hidden></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Save portal settings</button><button class="workspace-secondary-button" type="button" id="workspace-portal-preview">Refresh preview</button><button class="workspace-secondary-button" type="button" id="workspace-portal-mobile">Mobile preview</button></div>
-        </form><div class="workspace-portal-preview-wrap"><div class="workspace-card-heading"><div><span class="workspace-kicker">LOCAL SAMPLE</span><h2>Portal preview</h2></div><span class="workspace-status">Not deployed</span></div><iframe class="workspace-portal-preview" id="workspace-portal-preview-frame" title="Captive portal sample preview" sandbox></iframe><p class="workspace-note">Preview uses sample content and the currently stored organization name/color. Payment and hotspot authentication are not simulated here.</p></div>`;
+        </form><div class="workspace-portal-preview-wrap"><div class="workspace-card-heading"><div><span class="workspace-kicker">LOCAL SAMPLE</span><h2>Portal preview</h2></div><span class="workspace-status">Not deployed</span></div><iframe class="workspace-portal-preview" id="workspace-portal-preview-frame" title="Captive portal preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe><p class="workspace-note">Preview uses sample content and the currently stored organization name/color. Payment and hotspot authentication are not simulated here.</p></div>`;
         const form = panel.querySelector("#workspace-portal-form");
         const frame = panel.querySelector("#workspace-portal-preview-frame");
         const refreshPreview = () => {
@@ -1859,3 +1867,6 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
   bindControls();
   loadSection();
 }
+
+
+
