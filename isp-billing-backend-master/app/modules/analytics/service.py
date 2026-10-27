@@ -177,7 +177,7 @@ class ReportsService:
         pay_filters = [Payment.created_at >= start_date, Payment.created_at <= end_date]
         if self.organization_id:
             pay_filters.append(Payment.organization_id == self.organization_id)
-        # Live business figures exclude simulated/test payments.
+        # (We still load all payments below to report test activity separately.)
         pay_filters.append(Payment.is_test.is_(False))
 
         payment_query = select(Payment).where(and_(*pay_filters))
@@ -187,7 +187,9 @@ class ReportsService:
             payment_query = payment_query.join(Invoice, Payment.invoice_id == Invoice.id).join(Subscription, Invoice.subscription_id == Subscription.id).where(Subscription.router_id == router_id)
 
         payment_result = await self.db.execute(payment_query)
-        payments = payment_result.scalars().all()
+        all_payments = payment_result.scalars().all()
+        live_payments = [p for p in all_payments if not getattr(p, "is_test", False)]
+        test_payments = [p for p in all_payments if getattr(p, "is_test", False)]
 
         # Convert to Polars DataFrames
         invoice_data = []
@@ -211,7 +213,7 @@ class ReportsService:
             })
 
         payment_data = []
-        for pay in payments:
+        for pay in live_payments:
             payment_data.append({
                 "id": pay.id,
                 "user_id": pay.user_id,
@@ -241,12 +243,33 @@ class ReportsService:
 
         # Calculate analytics
         total_invoices = len(invoice_df) if not invoice_df.is_empty() else 0
-        total_revenue = invoice_df["paid_amount"].sum() if not invoice_df.is_empty() else 0
+        # Revenue is recognized from confirmed (completed) payments, not invoices.
+        # This includes portal/hotspot payments that may not have an invoice.
+        total_revenue = 0.0
+        if not payment_df.is_empty():
+            completed_payments_df = payment_df.filter(pl.col("status") == "completed")
+            if not completed_payments_df.is_empty():
+                total_revenue = float(completed_payments_df["amount"].sum())
         paid_invoices = len(invoice_df.filter(pl.col("status") == "paid")) if not invoice_df.is_empty() else 0
         pending_invoices = len(invoice_df.filter(pl.col("status") == "pending")) if not invoice_df.is_empty() else 0
         overdue_invoices = len(invoice_df.filter(pl.col("status") == "overdue")) if not invoice_df.is_empty() else 0
         collection_rate = (paid_invoices / total_invoices * 100) if total_invoices > 0 else 0
         average_invoice_amount = invoice_df["total_amount"].mean() if not invoice_df.is_empty() else 0
+
+        # Payment status counts for dashboard
+        total_payments = len(payment_df) if not payment_df.is_empty() else 0
+        successful_payments = 0
+        pending_payments = 0
+        failed_payments = 0
+        cancelled_payments = 0
+        if not payment_df.is_empty():
+            successful_payments = len(payment_df.filter(pl.col("status") == "completed"))
+            pending_payments = len(payment_df.filter(pl.col("status") == "pending"))
+            failed_payments = len(payment_df.filter(pl.col("status") == "failed"))
+            cancelled_payments = len(payment_df.filter(pl.col("status") == "cancelled"))
+
+        test_payments_count = len(test_payments)
+        test_revenue = float(sum(float(p.amount) for p in test_payments if str(p.status.value if hasattr(p.status, "value") else p.status).lower() == "completed"))
 
         # Revenue by month
         revenue_by_month = []
@@ -281,6 +304,13 @@ class ReportsService:
             "average_invoice_amount": average_invoice_amount,
             "revenue_by_month": revenue_by_month,
             "payment_methods": payment_methods,
+            "total_payments": total_payments,
+            "successful_payments": successful_payments,
+            "pending_payments": pending_payments,
+            "failed_payments": failed_payments,
+            "cancelled_payments": cancelled_payments,
+            "test_payments": test_payments_count,
+            "test_revenue": test_revenue,
         }
 
     async def get_router_analytics(
