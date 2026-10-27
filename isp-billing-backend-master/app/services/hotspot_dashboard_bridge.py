@@ -145,6 +145,7 @@ async def _upsert_subscription(
     username: str,
     password_hash: str,
     expires_at: datetime,
+    is_test: bool = False,
 ) -> Subscription:
     """Create or RENEW the hotspot Subscription for this customer.
 
@@ -175,6 +176,7 @@ async def _upsert_subscription(
         sub.password = password_hash
         sub.last_activity = now
         sub.updated_at = now
+        sub.is_test = is_test
         return sub
 
     sub = Subscription(
@@ -188,6 +190,7 @@ async def _upsert_subscription(
         password=password_hash,
         start_date=now,
         end_date=expires_at,
+        is_test=is_test,
     )
     db.add(sub)
     await db.flush()
@@ -203,6 +206,7 @@ async def _maybe_create_payment(
     currency: str,
     reference: Optional[str],
     method: str,
+    is_test: bool = False,
 ) -> Optional[Payment]:
     """Create a COMPLETED Payment for a DIRECT purchase (idempotent by reference).
 
@@ -233,7 +237,8 @@ async def _maybe_create_payment(
         status=PaymentStatus.COMPLETED,
         reference_number=reference,
         payment_date=datetime.utcnow(),
-        notes="Hotspot package purchase",
+        notes="Hotspot package purchase" + (" [TEST]" if is_test else ""),
+        is_test=is_test,
     )
     db.add(payment)
     await db.flush()
@@ -255,6 +260,7 @@ async def bridge_hotspot_purchase_to_dashboard(
     payment_reference: Optional[str] = None,
     payment_method: str = "treasury",
     is_voucher_redeem: bool = False,
+    is_test: bool = False,
 ) -> None:
     """Idempotently mirror a hotspot purchase/redeem into User+Subscription(+Payment).
 
@@ -269,15 +275,6 @@ async def bridge_hotspot_purchase_to_dashboard(
     """
     try:
         router_id = await _resolve_router_id(db, organization)
-        if router_id is None:
-            # Subscription.router_id is NOT NULL — without a router we cannot
-            # create the dashboard subscription. Skip gracefully (the customer is
-            # still provisioned via the session/voucher path).
-            logger.warning(
-                "hotspot bridge: no active router for org %s — skipping dashboard "
-                "Subscription for %s", organization.id, hotspot_username,
-            )
-            return
 
         user = await _upsert_customer_user(
             db,
@@ -289,21 +286,23 @@ async def bridge_hotspot_purchase_to_dashboard(
         )
         if user is None:
             logger.warning(
-                "hotspot bridge: could not resolve customer User for %s — skipping",
+                "hotspot bridge: could not resolve customer User for %s â€” skipping",
                 hotspot_username,
             )
             return
 
-        await _upsert_subscription(
-            db,
-            organization,
-            user=user,
-            plan=plan,
-            router_id=router_id,
-            username=hotspot_username,
-            password_hash=hotspot_password_hash,
-            expires_at=expires_at,
-        )
+        if router_id is not None:
+            await _upsert_subscription(
+                db,
+                organization,
+                user=user,
+                plan=plan,
+                router_id=router_id,
+                username=hotspot_username,
+                password_hash=hotspot_password_hash,
+                expires_at=expires_at,
+                is_test=is_test,
+            )
 
         if not is_voucher_redeem and amount is not None:
             await _maybe_create_payment(
@@ -314,13 +313,9 @@ async def bridge_hotspot_purchase_to_dashboard(
                 currency=currency,
                 reference=payment_reference,
                 method=payment_method,
+                is_test=is_test,
             )
 
-        # This bridge is invoked AFTER the caller has already committed the
-        # critical voucher/session/purchase rows, so it owns + commits ONLY its own
-        # dashboard rows. Committing here (rather than relying on the caller) means
-        # a constraint failure rolls back ONLY the bridge's work, never the
-        # already-persisted customer provisioning.
         await db.commit()
         logger.info(
             "hotspot bridge: mirrored %s (org %s) into User/Subscription%s",

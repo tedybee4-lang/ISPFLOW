@@ -88,6 +88,8 @@ class PurchaseRequest(BaseModel):
     phone_number: str = Field(default="", description="Phone number for M-PESA payments")
     email: Optional[str] = Field(None, description="Email for card/Paystack payments")
     payment_method: Optional[str] = Field("mpesa", description="Payment method: mpesa or paystack")
+    test_mode: bool = False
+    is_test: bool = False
 
 
 class PurchaseResponse(BaseModel):
@@ -114,6 +116,8 @@ class VoucherRedeemRequest(BaseModel):
 
     code: str = Field(..., min_length=4, max_length=50)
     mac_address: Optional[str] = None
+    test_mode: bool = False
+    is_test: bool = False
 
 
 class VoucherRedeemResponse(BaseModel):
@@ -822,12 +826,11 @@ async def _purchase_via_treasury(
         email=data.email,
         plan_id=plan.id,
         amount=plan.price,
-        currency=plan.currency,
+        currency=plan.currency or "KES",
         payment_method="treasury",
         payment_reference=reference,
         payment_status="pending",
-        ip_address=client_ip,
-        user_agent=user_agent,
+        is_test=bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False)),
     )
     db.add(purchase)
     await db.commit()
@@ -1072,6 +1075,7 @@ async def redeem_voucher(
     voucher.used_at = datetime.utcnow()
     voucher.used_mac_address = data.mac_address
     voucher.used_ip_address = client_ip
+    voucher.is_test = bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False))
 
     # Defensive: ensure the voucher has hotspot credentials. Vouchers issued
     # before credential auto-generation (or via legacy paths) may have NULLs,
@@ -1102,6 +1106,7 @@ async def redeem_voucher(
         speed_limit_down=plan.download_speed * 1000,  # Convert to kbps
         speed_limit_up=plan.upload_speed * 1000,
         data_limit=plan.data_limit * 1024 * 1024 * 1024 if plan.data_limit > 0 else None,  # Convert to bytes
+        is_test=bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False)),
     )
     db.add(session)
     await db.flush()
@@ -1157,6 +1162,7 @@ async def redeem_voucher(
                 hotspot_password_hash=voucher.hotspot_password,
                 expires_at=expires_at,
                 is_voucher_redeem=True,
+                is_test=bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False)),
             )
         except Exception as bridge_exc:  # never break the redeem
             logger.error(
@@ -1712,6 +1718,7 @@ async def _process_successful_payment(
                 payment_reference=purchase.payment_reference,
                 payment_method=purchase.payment_method or "treasury",
                 is_voucher_redeem=False,
+                is_test=getattr(purchase, "is_test", False),
             )
         except Exception as bridge_exc:  # never break provisioning
             logger.error(

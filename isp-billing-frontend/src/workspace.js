@@ -85,23 +85,18 @@ function planFormMarkup(plan = {}) {
     <div class="workspace-form-heading"><div><span class="workspace-kicker">${plan.id ? "EDIT PACKAGE" : "NEW PACKAGE"}</span><h3>${plan.id ? "Update internet package" : "Create an internet package"}</h3></div><button type="button" class="workspace-inline-link" data-plan-cancel>Cancel</button></div>
     <div class="workspace-form-grid">
       <label>Package name<input name="name" required minlength="1" maxlength="100" value="${escapeHtml(plan.name || "")}"></label>
-      <label>Access type<select name="plan_type"><option value="INTERNET" ${plan.plan_type === "INTERNET" ? "selected" : ""}>Internet</option><option value="HOTSPOT" ${plan.plan_type === "HOTSPOT" ? "selected" : ""}>Hotspot</option><option value="PPPOE" ${plan.plan_type === "PPPOE" ? "selected" : ""}>PPPoE</option><option value="BOTH" ${plan.plan_type === "BOTH" ? "selected" : ""}>Hotspot & PPPoE</option></select></label>
-      <label>Price<input name="price" type="number" min="0" step="0.01" required value="${escapeHtml(plan.price ?? "0")}"></label>
-      <label>Currency<input name="currency" minlength="3" maxlength="3" required value="${escapeHtml(plan.currency || "KES")}"></label>
-      <label>Billing cycle<select name="billing_cycle">${["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY", "ONE_TIME"].map((cycle) => `<option value="${cycle}" ${plan.billing_cycle === cycle ? "selected" : ""}>${cycle.replaceAll("_", " ").toLowerCase()}</option>`).join("")}</select></label>
-      <label>Download speed (Kbps)<input name="download_speed" type="number" min="0" step="1" required value="${escapeHtml(plan.download_speed ?? "0")}"></label>
-      <label>Upload speed (Kbps)<input name="upload_speed" type="number" min="0" step="1" required value="${escapeHtml(plan.upload_speed ?? "0")}"></label>
+      <label>Package type<select name="plan_type"><option value="HOTSPOT" ${plan.plan_type === "HOTSPOT" ? "selected" : ""}>Hotspot</option><option value="PPPOE" ${plan.plan_type === "PPPOE" ? "selected" : ""}>PPPoE</option></select></label>
+      <label>Price (KES)<input name="price" type="number" min="0" step="0.01" required value="${escapeHtml(plan.price ?? "0")}"></label>
       <label>Validity value<input name="validity_value" type="number" min="1" step="1" required value="${escapeHtml(plan.duration_minutes ? plan.duration_minutes : (plan.validity_days ?? 30))}"></label>
       <label>Validity unit<select name="validity_unit">${["minutes","hours","days","months"].map((unit) => `<option value="${unit}" ${(plan.duration_minutes && unit === "minutes") || (!plan.duration_minutes && unit === "days") ? "selected" : ""}>${unit}</option>`).join("")}</select></label>
-      <label>Validity (days)<input name="validity_days" type="number" min="1" step="1" required value="${escapeHtml(plan.validity_days ?? "30")}"></label>
-      <label>Duration override (minutes)<input name="duration_minutes" type="number" min="1" step="1" value="${escapeHtml(plan.duration_minutes ?? "")}"><small>Optional; takes precedence over whole-day validity.</small></label>
+      <label>Speed limit (Kbps)<input name="download_speed" type="number" min="0" step="1" required value="${escapeHtml(plan.download_speed ?? "0")}"></label>
+      <label>Upload speed (Kbps)<input name="upload_speed" type="number" min="0" step="1" required value="${escapeHtml(plan.upload_speed ?? "0")}"></label>
       <label>Data limit (GB; -1 unlimited)<input name="data_limit" type="number" min="-1" step="1" value="${escapeHtml(plan.data_limit ?? "-1")}"></label>
-      <label>Fair-use policy<select name="fup_enabled"><option value="false" ${plan.fup_enabled ? "" : "selected"}>Disabled</option><option value="true" ${plan.fup_enabled ? "selected" : ""}>Enabled</option></select></label>
-      <label>Fair-use threshold (GB)<input name="fup_threshold" type="number" min="0" step="1" value="${escapeHtml(plan.fup_threshold ?? "")}"></label>
-      <label>Fair-use download speed (Kbps)<input name="fup_download_speed" type="number" min="0" step="1" value="${escapeHtml(plan.fup_download_speed ?? "")}"></label>
-      <label>Fair-use upload speed (Kbps)<input name="fup_upload_speed" type="number" min="0" step="1" value="${escapeHtml(plan.fup_upload_speed ?? "")}"></label>
-      <label>Description<input name="description" maxlength="1000" value="${escapeHtml(plan.description || "")}"></label>
     </div>
+    <input type="hidden" name="currency" value="KES">
+    <input type="hidden" name="billing_cycle" value="ONE_TIME">
+    <input type="hidden" name="validity_days" value="${escapeHtml(plan.validity_days ?? "30")}">
+    <input type="hidden" name="duration_minutes" value="${escapeHtml(plan.duration_minutes ?? "")}">    </div>
     <div class="workspace-form-feedback" role="alert" hidden></div>
     <div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">${plan.id ? "Save changes" : "Create package"}</button><button class="workspace-secondary-button" type="button" data-plan-cancel>Cancel</button></div>
   </form>`;
@@ -327,7 +322,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
     customerRenewal: null
   };
 
-  const request = (path, options = {}) => {
+  const request = async (path, options = {}) => {
     const apiPath = path.replace("/api/v1/support/tickets", "/api/v1/tickets");
     const headers = { Authorization: `Bearer ${token}`, ...(options.headers || {}) };
     if (isOwner && state.selectedSlug) {
@@ -335,7 +330,17 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
       headers["X-Organization-Slug"] = state.selectedSlug;
       if (organization?.id) headers["X-Tenant-ID"] = String(organization.id);
     }
-    return api(apiPath, { ...options, headers });
+    try {
+      return await api(apiPath, { ...options, headers });
+    } catch (error) {
+      if (String(error?.message || "").startsWith("401:")) {
+        sessionStorage.removeItem("ispflow.access");
+        sessionStorage.removeItem("ispflow.refresh");
+        sessionStorage.removeItem("ispflow.orgSlug");
+        window.location.href = "/";
+      }
+      throw error;
+    }
   };
 
   const signOut = async () => {
@@ -831,7 +836,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           delete body.validity_value;
           delete body.validity_unit;
           body.fup_enabled = body.fup_enabled === "true";
-          body.currency = String(body.currency).trim().toUpperCase();
+          body.currency = String(body.currency || "KES").trim().toUpperCase();
           body.name = String(body.name).trim();
           body.description = String(body.description).trim() || null;
           submit.disabled = true;
@@ -1107,87 +1112,186 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
         return;
       }
 
+
       if (state.activeTab === "portal") {
-        const results = await Promise.allSettled([
-          request("/api/v1/tenant/settings/hotspot"),
-          request("/api/v1/tenant/settings/business"),
-          request("/api/v1/tenant/settings/organization")
-        ]);
-        const failed = results.find((result) => result.status === "rejected");
-        if (failed) throw failed.reason;
-        const hotspot = payloadOf(results[0].value);
-        const business = payloadOf(results[1].value);
-        const organization = payloadOf(results[2].value);
-        panel.innerHTML = `${sectionHeading("Captive portal settings", "These controls persist tenant hotspot settings used by backend portal/provisioning flows. Branding is read-only here because the identity service owns it; saving does not upload files to a router.")}${state.portalNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.portalNotice)}</div>` : ""}<form class="workspace-form" id="workspace-portal-form">
-          <div class="workspace-form-grid">
-            <label>Portal template<select name="hotspot_template"><option value="Aurora" ${hotspot.hotspot_template === "Aurora" ? "selected" : ""}>Aurora (configured default)</option><option value="modern" ${hotspot.hotspot_template === "modern" ? "selected" : ""}>Modern handoff</option></select><small>Template rendering/deployment must be verified on a lab router.</small></label>
-            <label>After-login redirect URL<input name="redirect_url" type="url" maxlength="500" value="${escapeHtml(hotspot.redirect_url || "")}"></label>
-            <label>Voucher format<input name="voucher_format" maxlength="50" value="${escapeHtml(hotspot.voucher_format || "XXXX-XXXX")}"></label>
-            <label>Voucher length<input name="voucher_length" type="number" min="4" max="20" value="${escapeHtml(hotspot.voucher_length ?? 8)}"></label>
-            <label>Session timeout (minutes)<input name="session_timeout_minutes" type="number" min="1" max="1440" value="${escapeHtml(hotspot.session_timeout_minutes ?? 60)}"></label>
-            <label>Show packages on portal<select name="show_packages_on_portal"><option value="true" ${hotspot.show_packages_on_portal ? "selected" : ""}>Yes</option><option value="false" ${!hotspot.show_packages_on_portal ? "selected" : ""}>No</option></select></label>
-            <label>Allow guest purchases<select name="allow_guest_purchases"><option value="true" ${hotspot.allow_guest_purchases ? "selected" : ""}>Yes</option><option value="false" ${!hotspot.allow_guest_purchases ? "selected" : ""}>No</option></select></label>
-            <label>Username prefix<input name="username_prefix" minlength="1" maxlength="10" value="${escapeHtml(hotspot.username_prefix || "C")}"></label>
-            <label class="workspace-form-wide">Terms shown in local preview<textarea name="terms_and_conditions" maxlength="10000" rows="5">${escapeHtml(business.terms_and_conditions || "")}</textarea></label>
-          </div>
-          <div class="workspace-form-feedback" role="alert" hidden></div><div class="workspace-form-actions"><button class="workspace-primary-button" type="submit">Save portal settings</button><button class="workspace-secondary-button" type="button" id="workspace-portal-preview">Refresh preview</button><button class="workspace-secondary-button" type="button" id="workspace-portal-mobile">Mobile preview</button></div>
-        </form><div class="workspace-portal-preview-wrap"><div class="workspace-card-heading"><div><span class="workspace-kicker">LOCAL SAMPLE</span><h2>Portal preview</h2></div><span class="workspace-status">Not deployed</span></div><iframe class="workspace-portal-preview" id="workspace-portal-preview-frame" title="Captive portal preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe><p class="workspace-note">Preview uses sample content and the currently stored organization name/color. Payment and hotspot authentication are not simulated here.</p></div>`;
-        const form = panel.querySelector("#workspace-portal-form");
-        const frame = panel.querySelector("#workspace-portal-preview-frame");
-        const refreshPreview = () => {
-          const data = Object.fromEntries(new FormData(form).entries());
-          frame.srcdoc = portalPreviewDocument(organization, {
-            show_packages_on_portal: data.show_packages_on_portal === "true"
-          }, data.terms_and_conditions);
+        const settings = await request("/api/v1/tenant/captive-portal/settings");
+        const themes = await request("/api/v1/tenant/captive-portal/themes");
+        let portalPackages = [];
+        try {
+          let slug = state.selectedSlug || "";
+          if (!slug) {
+            try {
+              const orgInfo = await request("/api/v1/tenant/settings/organization");
+              slug = orgInfo?.slug || orgInfo?.data?.slug || "";
+            } catch (e) {
+              slug = "";
+            }
+          }
+          state.portalPreviewSlug = slug;
+          if (slug) portalPackages = await request(`/api/v1/portal/hotspot/${encodeURIComponent(slug)}/packages`);
+        } catch (error) {
+          portalPackages = [];
+        }
+        if (!Array.isArray(portalPackages)) portalPackages = portalPackages?.data || [];
+        const themeList = themes?.themes || ["modern", "minimal", "professional", "colorful", "dark", "light", "gradient", "classic"];
+        const layoutList = themes?.layouts || ["grid-2", "grid-3", "list", "compact", "large", "featured"];
+        const sortList = themes?.sort_modes || ["manual", "price", "validity", "featured"];
+        const colorKeys = ["primary", "background", "surface", "text", "accent", "card_label", "card_surface", "button", "button_text"];
+        const defaultColors = {
+          primary: "#9100B0", background: "#1e1b4b", surface: "#ffffff", text: "#ffffff",
+          accent: "#2563eb", card_label: "#1e3a8a", card_surface: "#dbeafe", button: "#ffffff", button_text: "#1e3a8a"
         };
-        refreshPreview();
-        panel.querySelector("#workspace-portal-preview")?.addEventListener("click", refreshPreview);
-        panel.querySelector("#workspace-portal-mobile")?.addEventListener("click", () => {
-          frame.classList.toggle("workspace-portal-mobile");
-        });
-        form.addEventListener("input", refreshPreview);
+        const currentColors = settings.colors || {};
+        const visibility = settings.visibility || {};
+        const sectionVisible = (key) => visibility[key] !== false;
+        panel.innerHTML = `${sectionHeading("Captive portal customization", "Edit, preview, and publish the tenant-specific captive portal. Changes are saved as a draft and published only when you choose.")}${state.portalNotice ? `<div class="workspace-note" role="status">${escapeHtml(state.portalNotice)}</div>` : ""}
+        <div class="workspace-portal-grid">
+          <form class="workspace-form" id="workspace-captive-form">
+            <h3 class="workspace-subheading">Branding</h3>
+            <div class="workspace-form-grid">
+              <label>ISP display name<input name="isp_name" maxlength="200" value="${escapeHtml(settings.isp_name || "")}"></label>
+              <label>Logo URL<input name="logo_url" type="url" maxlength="500" value="${escapeHtml(settings.logo_url || "")}"></label>
+              <label>Tagline<input name="tagline" maxlength="300" value="${escapeHtml(settings.tagline || "")}"></label>
+              <label>Support phone<input name="support_phone" maxlength="50" value="${escapeHtml(settings.support_phone || "")}"></label>
+              <label>WhatsApp contact<input name="whatsapp_contact" maxlength="50" value="${escapeHtml(settings.whatsapp_contact || "")}"></label>
+              <label class="workspace-form-wide">Footer text<textarea name="footer_info" rows="3" maxlength="2000">${escapeHtml(settings.footer_info || "")}</textarea></label>
+              <label class="workspace-form-wide">Contact information<textarea name="contact_info" rows="3" maxlength="2000">${escapeHtml(settings.contact_info || "")}</textarea></label>
+              <label>Welcome heading<input name="welcome_heading" maxlength="200" value="${escapeHtml(settings.welcome_heading || "")}"></label>
+              <label>Instructions<textarea name="instructions" rows="3" maxlength="2000">${escapeHtml(settings.instructions || "")}</textarea></label>
+              <label>Payment instructions<textarea name="payment_instructions" rows="3" maxlength="2000">${escapeHtml(settings.payment_instructions || "")}</textarea></label>
+              <label>Success message<input name="success_message" maxlength="300" value="${escapeHtml(settings.success_message || "")}"></label>
+              <label>Connection status text<input name="connection_status_text" maxlength="200" value="${escapeHtml(settings.connection_status_text || "")}"></label>
+            </div>
+            <h3 class="workspace-subheading">Theme and layout</h3>
+            <div class="workspace-form-grid">
+              <label>Theme<select name="theme">${themeList.map((t) => `<option value="${escapeHtml(t)}" ${settings.theme === t ? "selected" : ""}>${escapeHtml(t)}</option>`).join("")}</select></label>
+              <label>Font<select name="font_family"><option value="inherit" ${(settings.typography?.font_family || "inherit") === "inherit" ? "selected" : ""}>Default</option><option value="Arial, sans-serif" ${settings.typography?.font_family === "Arial, sans-serif" ? "selected" : ""}>Arial</option><option value="Verdana, sans-serif" ${settings.typography?.font_family === "Verdana, sans-serif" ? "selected" : ""}>Verdana</option><option value="Georgia, serif" ${settings.typography?.font_family === "Georgia, serif" ? "selected" : ""}>Georgia</option></select></label>
+              <label>Layout<select name="layout">${layoutList.map((l) => `<option value="${escapeHtml(l)}" ${settings.layout === l ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
+              <label>Sort mode<select name="sort_mode">${sortList.map((m) => `<option value="${escapeHtml(m)}" ${settings.sort_mode === m ? "selected" : ""}>${escapeHtml(m)}</option>`).join("")}</select></label>
+              <label>Mobile columns<input name="mobile_columns" type="number" min="1" max="4" value="${escapeHtml(settings.mobile_columns ?? 1)}"></label>
+              <label>Tablet columns<input name="tablet_columns" type="number" min="1" max="4" value="${escapeHtml(settings.tablet_columns ?? 2)}"></label>
+              <label>Desktop columns<input name="desktop_columns" type="number" min="1" max="4" value="${escapeHtml(settings.desktop_columns ?? 2)}"></label>
+              <label>Card spacing<input name="card_spacing" type="number" min="0" max="64" value="${escapeHtml(settings.card_spacing ?? 14)}"></label>
+            </div>
+            <h3 class="workspace-subheading">Colours</h3>
+            <div class="workspace-form-grid">
+              ${colorKeys.map((key) => `<label>${escapeHtml(key.replaceAll("_", " "))}<input name="color_${key}" type="color" value="${escapeHtml(currentColors[key] || defaultColors[key])}"></label>`).join("")}
+            </div>
+            <h3 class="workspace-subheading">Section visibility</h3>
+            <div class="workspace-form-grid">
+              ${["voucher", "reconnect", "packages", "active_login", "mpesa", "connect_tv", "troubleshoot", "contact", "footer", "floating_support"].map((key) => `<label>${escapeHtml(key.replaceAll("_", " "))}<select name="vis_${key}"><option value="true" ${sectionVisible(key) ? "selected" : ""}>Visible</option><option value="false" ${!sectionVisible(key) ? "selected" : ""}>Hidden</option></select></label>`).join("")}
+            </div>
+            <div class="workspace-form-feedback" role="alert" hidden></div>
+            <div class="workspace-form-actions">
+              <button class="workspace-primary-button" type="submit" id="captive-save">Save Draft</button>
+              <button class="workspace-secondary-button" type="button" id="captive-publish">Publish Changes</button>
+              <button class="workspace-secondary-button" type="button" id="captive-restore">Restore Default Theme</button>
+            </div>
+          </form>
+          <div class="workspace-portal-preview-wrap">
+            <div class="workspace-card-heading"><div><span class="workspace-kicker">PREVIEW</span><h2>Portal preview</h2></div><span class="workspace-status">Draft</span></div>
+            <iframe id="captive-preview" class="workspace-portal-preview" title="Captive portal preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+            <div class="workspace-form-actions"><button type="button" class="workspace-secondary-button" id="captive-preview-mobile">Mobile preview</button><button type="button" class="workspace-secondary-button" id="captive-preview-desktop">Desktop preview</button></div>
+            <p class="workspace-note">Preview uses sample package data and unsaved field values. It does not initiate payments or activate service.</p>
+          </div>
+        </div>`;
+        const form = panel.querySelector("#workspace-captive-form");
+        const feedback = form.querySelector(".workspace-form-feedback");
+        const preview = panel.querySelector("#captive-preview");
+        const previewFrame = panel.querySelector("#captive-preview");
+        const updatePreview = () => {
+          const slug = state.portalPreviewSlug || state.selectedSlug || "";
+          const url = slug ? `/portal?tenant=${encodeURIComponent(slug)}&preview=1&t=${Date.now()}` : "/portal";
+          previewFrame.src = url;
+        };
+        form.addEventListener("input", updatePreview);
+        updatePreview();
+        const collectPayload = () => {
+          const values = Object.fromEntries(new FormData(form).entries());
+          const colors = {};
+          for (const key of colorKeys) colors[key] = values[`color_${key}`] || null;
+          const visibilityPayload = {};
+          for (const key of ["voucher", "reconnect", "packages", "active_login", "mpesa", "connect_tv", "troubleshoot", "contact", "footer", "floating_support"]) {
+            visibilityPayload[key] = values[`vis_${key}`] === "true";
+          }
+          return {
+            theme: values.theme,
+            layout: values.layout,
+            sort_mode: values.sort_mode,
+            mobile_columns: Number(values.mobile_columns),
+            tablet_columns: Number(values.tablet_columns),
+            desktop_columns: Number(values.desktop_columns),
+            card_spacing: Number(values.card_spacing),
+            isp_name: values.isp_name || null,
+            logo_url: values.logo_url || null,
+            tagline: values.tagline || null,
+            support_phone: values.support_phone || null,
+            whatsapp_contact: values.whatsapp_contact || null,
+            footer_info: values.footer_info || null,
+            contact_info: values.contact_info || null,
+            welcome_heading: values.welcome_heading || null,
+            instructions: values.instructions || null,
+            payment_instructions: values.payment_instructions || null,
+            success_message: values.success_message || null,
+            connection_status_text: values.connection_status_text || null,
+            colors,
+            visibility: visibilityPayload,
+            typography: { font_family: values.font_family || "inherit" },
+          };
+        };
+        const previewBox = panel.querySelector("#captive-preview");
+        panel.querySelector("#captive-preview-mobile")?.addEventListener("click", () => { previewBox.style.width = "360px"; previewBox.style.height = "640px"; });
+        panel.querySelector("#captive-preview-desktop")?.addEventListener("click", () => { previewBox.style.width = "100%"; previewBox.style.height = "700px"; });
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
-          const submit = form.querySelector('button[type="submit"]');
-          const feedback = form.querySelector(".workspace-form-feedback");
-          const values = Object.fromEntries(new FormData(form).entries());
-          const boolValue = (value) => value === "true";
-          const hotspotBody = {
-            hotspot_template: values.hotspot_template,
-            redirect_url: values.redirect_url || "",
-            voucher_format: values.voucher_format,
-            voucher_length: Number(values.voucher_length),
-            session_timeout_minutes: Number(values.session_timeout_minutes),
-            show_packages_on_portal: boolValue(values.show_packages_on_portal),
-            allow_guest_purchases: boolValue(values.allow_guest_purchases),
-            username_prefix: values.username_prefix
-          };
+          const submit = form.querySelector("#captive-save");
           submit.disabled = true;
-          submit.textContent = "Saving…";
           feedback.hidden = true;
-          const [hotspotSave, termsSave] = await Promise.allSettled([
-            request("/api/v1/tenant/settings/hotspot", { method: "PATCH", body: JSON.stringify(hotspotBody) }),
-            request("/api/v1/tenant/settings/business", { method: "PATCH", body: JSON.stringify({ terms_and_conditions: values.terms_and_conditions }) })
-          ]);
-          if (hotspotSave.status === "fulfilled" && termsSave.status === "fulfilled") {
-            state.portalNotice = "Portal settings saved to the tenant database. Router deployment has not been performed.";
+          try {
+            await request("/api/v1/tenant/captive-portal/settings", { method: "PUT", body: JSON.stringify(collectPayload()) });
+            state.portalNotice = "Captive portal draft saved.";
             await loadSection();
-            return;
+          } catch (error) {
+            feedback.textContent = error.message || "Save failed.";
+            feedback.hidden = false;
+          } finally {
+            submit.disabled = false;
           }
-          const messages = [];
-          if (hotspotSave.status === "rejected") messages.push(`Hotspot settings: ${hotspotSave.reason.message || String(hotspotSave.reason)}`);
-          else messages.push("Hotspot settings were saved.");
-          if (termsSave.status === "rejected") messages.push(`Terms: ${termsSave.reason.message || String(termsSave.reason)}`);
-          else messages.push("Terms were saved.");
-          feedback.textContent = messages.join(" ");
-          feedback.hidden = false;
-          submit.disabled = false;
-          submit.textContent = "Save portal settings";
-          refreshPreview();
+        });
+        panel.querySelector("#captive-publish")?.addEventListener("click", async () => {
+          const submit = panel.querySelector("#captive-publish");
+          submit.disabled = true;
+          feedback.hidden = true;
+          try {
+            await request("/api/v1/tenant/captive-portal/settings", { method: "PUT", body: JSON.stringify(collectPayload()) });
+            await request("/api/v1/tenant/captive-portal/publish", { method: "POST", body: JSON.stringify({ notes: "Published from dashboard" }) });
+            state.portalNotice = "Captive portal published.";
+            await loadSection();
+          } catch (error) {
+            feedback.textContent = error.message || "Publish failed.";
+            feedback.hidden = false;
+          } finally {
+            submit.disabled = false;
+          }
+        });
+        panel.querySelector("#captive-restore")?.addEventListener("click", async () => {
+          if (!window.confirm("Restore the default captive portal theme?")) return;
+          const submit = panel.querySelector("#captive-restore");
+          submit.disabled = true;
+          feedback.hidden = true;
+          try {
+            await request("/api/v1/tenant/captive-portal/settings", { method: "PUT", body: JSON.stringify({ theme: "modern", colors: defaultColors, visibility: {} }) });
+            state.portalNotice = "Default theme restored.";
+            await loadSection();
+          } catch (error) {
+            feedback.textContent = error.message || "Restore failed.";
+            feedback.hidden = false;
+          } finally {
+            submit.disabled = false;
+          }
         });
         return;
       }
-
       if (state.activeTab === "bindings") {
         const routersResult = await request("/api/v1/routers/?page=1&size=100");
         const routers = listOf(routersResult, "items");

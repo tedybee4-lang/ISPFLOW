@@ -87,6 +87,9 @@ class PaymentTransaction(Base):
 
     # Additional data
     extra_data = Column(JSON, nullable=True)  # Additional transaction data
+
+    # Test/simulation flag
+    is_test = Column(Boolean, default=False, nullable=False, index=True)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
 

@@ -86,6 +86,9 @@ class Subscription(Base):
     # Notes and metadata
     notes = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Test/simulation flag
+    is_test = Column(Boolean, default=False, nullable=False, index=True)
     
     # Constraints
     __table_args__ = (

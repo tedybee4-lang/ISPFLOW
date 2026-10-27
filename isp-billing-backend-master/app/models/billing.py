@@ -42,6 +42,7 @@ class PaymentStatus(str, PyEnum):
     REFUNDED = "refunded"
     CHECKED = "checked"  # Payment verified by admin
     UNCHECKED = "unchecked"  # Payment needs verification
+    SIMULATED = "simulated"  # Simulated/test payment, never counts as live revenue
 
 
 class PaymentMethod(str, PyEnum):
@@ -199,8 +200,8 @@ class Payment(Base):
     disbursement_method = Column(String(50), nullable=True)
     disbursement_reference = Column(String(100), nullable=True)
     
-    # Manual payment fields
-    is_manual_payment = Column(Boolean, default=False, nullable=False)
+    # Test/simulation flag â€” test activity must never inflate live revenue
+    is_test = Column(Boolean, default=False, nullable=False, index=True)
     recorded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     receipt_image_url = Column(String(500), nullable=True)
 

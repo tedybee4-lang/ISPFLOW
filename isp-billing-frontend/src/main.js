@@ -3,7 +3,7 @@ import { mountWorkspace } from "./workspace.js";
 
 const DEFAULT_API_BASE = ["localhost", "127.0.0.1"].includes(location.hostname)
   ? "http://127.0.0.1:8000"
-  : "https://api.ispflow.co.ke";
+  : "";
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE).replace(/\/+$/, "");
 
 const featureItems = [
@@ -338,6 +338,12 @@ function bindCustomerPortal() {
   const lookup = document.querySelector("#portal-tenant-form");
   const holder = document.querySelector("#customer-portal-content");
   if (!lookup || !holder) return;
+  const autoTenant = new URLSearchParams(location.search).get("tenant");
+  if (autoTenant) {
+    const input = lookup.querySelector('input[name="org_slug"]');
+    if (input) input.value = autoTenant;
+    window.setTimeout(() => lookup.requestSubmit(), 0);
+  }
   const state = {
     slug: String(new FormData(lookup).get("org_slug") || "").trim(),
     config: null,
@@ -345,7 +351,8 @@ function bindCustomerPortal() {
     accessResult: null,
     purchase: null,
     purchaseStatus: null,
-    notice: ""
+    notice: "",
+    demo: new URLSearchParams(location.search).get("demo") === "1"
   };
   const unwrap = (response) => response?.data || response || {};
   const link = (value, label, allowHttp = false) => {
@@ -372,13 +379,165 @@ function bindCustomerPortal() {
     const color = /^#[0-9a-fA-F]{6}$/.test(config.primary_color || "") ? config.primary_color : "#173330";
     const purchase = state.purchase;
     const status = state.purchaseStatus;
-    holder.innerHTML = `<section class="customer-portal-card" style="--portal-brand:${color}"><div class="customer-portal-heading"><span class="eyebrow">ISP CUSTOMER PORTAL</span><h2>${esc(config.portal_title || config.organization_name || "Internet access")}</h2><p>${esc(config.portal_description || `Welcome to ${config.organization_name || "your ISP"}.`)}</p></div>${!config.provider_active ? `<div class="notice notice-warning" role="status">This ISP account is not currently accepting new purchases. Contact your provider to restore service.</div>` : ""}${state.notice ? `<div class="notice notice-neutral" role="status">${esc(state.notice)}</div>` : ""}${config.show_packages && state.packages.length ? `<h3>Available packages</h3><div class="customer-portal-packages">${state.packages.map((plan) => `<article class="customer-portal-package"><strong>${esc(plan.name)}</strong><p>${esc(plan.description || "Internet access")}</p><span>${esc(plan.currency || "KES")} ${esc(Number(plan.price || 0).toLocaleString())}</span><small>${esc(plan.validity_days || "—")} days · ${esc(plan.download_speed || "—")}/${esc(plan.upload_speed || "—")} Mbps</small></article>`).join("")}</div>` : ""}${config.provider_active && config.allow_guest_purchases && state.packages.length ? `<form class="form-card customer-portal-form" id="portal-purchase-form"><h3>Buy internet access</h3><div class="form-error" role="alert" hidden></div><label>Package<select name="plan_id" required>${state.packages.map((plan) => `<option value="${esc(plan.id)}">${esc(plan.name)} · ${esc(plan.currency || "KES")} ${esc(Number(plan.price || 0).toLocaleString())}</option>`).join("")}</select></label><label>Mobile money phone<input name="phone_number" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07xx xxx xxx" required></label><label>Email (optional)<input name="email" type="email" autocomplete="email" maxlength="254"></label><label>Payment method<select name="payment_method"><option value="mpesa">M-PESA</option><option value="paystack">Card / online</option></select></label><button class="button button-dark button-full" type="submit">Continue to secure payment</button></form>` : ""}${config.provider_active ? `<form class="form-card customer-portal-form" id="portal-voucher-form"><h3>Redeem a voucher</h3><div class="form-error" role="alert" hidden></div><label>Voucher code<input name="code" autocomplete="off" autocapitalize="characters" minlength="4" maxlength="50" required></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Redeem voucher</button></form><form class="form-card customer-portal-form" id="portal-login-form"><h3>Already have an account?</h3><div class="form-error" role="alert" hidden></div><label>Hotspot username<input name="username" autocomplete="username" required maxlength="50"></label><label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="255"></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Connect</button></form>` : ""}${accessResultMarkup()}${purchase ? `<section class="customer-portal-payment"><h3>Payment status</h3><p>${esc(status?.message || purchase.message || "Complete payment in the secure checkout.")}</p>${purchase.checkout_url ? link(purchase.checkout_url, "Open secure checkout") : `<p>Checkout link is unavailable. Contact your ISP with reference <strong>${esc(purchase.reference)}</strong>.</p>`}<p>Reference: <strong>${esc(purchase.reference)}</strong></p><button class="button button-light" type="button" id="portal-payment-check">Check payment status</button>${status?.is_success ? `<div class="notice notice-neutral" role="status"><strong>Payment confirmed.</strong>${status.voucher_code ? `<p>Voucher: <strong>${esc(status.voucher_code)}</strong></p>` : ""}${status.hotspot_username ? `<p>Username: ${esc(status.hotspot_username)}</p><p>Password: ${esc(status.hotspot_password || "")}</p>` : ""}${status.login_url ? link(status.login_url, "Connect to hotspot", true) : ""}</div>` : ""}</section>` : ""}</section>`;
-    if (!config.provider_active) {
-      const accessForms = `<form class="form-card customer-portal-form" id="portal-voucher-form"><h3>Redeem a voucher</h3><div class="form-error" role="alert" hidden></div><label>Voucher code<input name="code" autocomplete="off" autocapitalize="characters" minlength="4" maxlength="50" required></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Redeem voucher</button></form><form class="form-card customer-portal-form" id="portal-login-form"><h3>Already have an account?</h3><div class="form-error" role="alert" hidden></div><label>Hotspot username<input name="username" autocomplete="username" required maxlength="50"></label><label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="255"></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="button button-dark button-full" type="submit">Connect</button></form>`;
-      const paymentSection = holder.querySelector(".customer-portal-payment");
-      if (paymentSection) paymentSection.insertAdjacentHTML("beforebegin", accessForms);
-      else holder.querySelector(".customer-portal-card")?.insertAdjacentHTML("beforeend", accessForms);
+    const c = config.customization || {};
+    const primary = c.colors?.primary || config.primary_color || "#9100B0";
+    const bg = c.colors?.background || "#1e1b4b";
+    const surface = c.colors?.surface || "#ffffff";
+    const text = c.colors?.text || "#ffffff";
+    const accent = c.colors?.accent || "#2563eb";
+    const cardLabel = c.colors?.card_label || "#1e3a8a";
+    const cardSurface = c.colors?.card_surface || "#dbeafe";
+    const buttonBg = c.colors?.button || "#ffffff";
+    const buttonText = c.colors?.button_text || "#1e3a8a";
+    const ispName = c.isp_name || config.organization_name || "ISP";
+    const supportPhone = c.support_phone || "";
+    const whatsapp = c.whatsapp_contact || "";
+    const footerText = c.footer_info || "";
+    const contactInfo = c.contact_info || "";
+    const welcome = c.welcome_heading || config.portal_title || "Internet access";
+    const instructions = c.instructions || config.portal_description || `Welcome to ${ispName}.`;
+    const visibility = c.visibility || {};
+    const showSection = (key, fallback = true) => visibility[key] !== false && fallback;
+    const macAddress = (new URLSearchParams(location.search).get("mac") || "").trim();
+    const logoUrl = (c.logo_url || config.logo_url || "").trim();
+    const logoMarkup = logoUrl
+      ? `<img class="cp-logo" src="${esc(logoUrl)}" alt="${esc(ispName)} logo">`
+      : `<span class="cp-logo-fallback">${esc((ispName || "IS").slice(0, 2).toUpperCase())}</span>`;
+    const packageColumns = Math.max(1, Math.min(4, Number(c.desktop_columns || c.tablet_columns || 2)));
+    const packagesMarkup = config.show_packages && state.packages.length
+      ? `<section class="cp-section"><div class="cp-package-grid" style="grid-template-columns:repeat(${packageColumns},minmax(0,1fr))">${state.packages.map((plan) => `<article class="cp-package-card"><div class="cp-package-label">${esc(plan.name)}</div><div class="cp-package-price">KSh ${esc(Number(plan.price || 0).toLocaleString())}</div><p class="cp-package-duration">${esc(plan.duration_minutes ? (plan.duration_minutes >= 1440 ? Math.round(plan.duration_minutes / 1440) + " day(s)" : plan.duration_minutes + " min") : (plan.validity_days || "—") + " days")}</p><p class="cp-package-desc">${esc(plan.description || "Internet access")}</p><div class="cp-package-lower"><button type="button" class="cp-connect-button" data-connect-plan="${esc(plan.id)}">Click Here To Connect</button></div></article>`).join("")}</div></section>`
+      : "";
+    const fontFamily = (c.typography && c.typography.font_family) ? c.typography.font_family : "inherit";
+    holder.innerHTML = `<section class="captive-portal-shell" style="--cp-primary:${primary};--cp-bg:${bg};--cp-surface:${surface};--cp-text:${text};--cp-accent:${accent};--cp-card-label:${cardLabel};--cp-card-surface:${cardSurface};--cp-button:${buttonBg};--cp-button-text:${buttonText};font-family:${esc(fontFamily)};"><header class="cp-header"><div class="cp-header-row"><div class="cp-brand">${logoMarkup}<h1 class="cp-org-name">${esc(ispName)}</h1></div><a class="cp-paid-link" href="#cp-login">Already Paid? Click Here.</a></div>${supportPhone ? `<p class="cp-support-phone">Support: ${esc(supportPhone)}</p>` : ""}</header><div class="cp-body"><button type="button" class="cp-troubleshoot">Force Reconnection / Troubleshoot</button>${macAddress ? `<p class="cp-mac">MAC: ${esc(macAddress)}</p>` : ""}${showSection("voucher", true) ? `<section class="cp-card"><h2>Voucher activation</h2><form class="cp-form" id="portal-voucher-form"><div class="form-error" role="alert" hidden></div><label>Voucher code<input name="code" autocomplete="off" autocapitalize="characters" minlength="4" maxlength="50" required></label><label>Phone number<input name="phone_number" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07xx xxx xxx"></label><button class="cp-action-button" type="submit">Activate Voucher</button></form></section>` : ""}${showSection("reconnect", true) ? `<section class="cp-card"><h2>Lost Voucher connection? Reconnect here</h2><form class="cp-form" id="portal-reconnect-form"><div class="form-error" role="alert" hidden></div><label>Phone number or voucher code<input name="identifier" autocomplete="off" required></label><button class="cp-action-button" type="submit">Reconnect</button></form></section>` : ""}${packagesMarkup}${showSection("connect_tv", false) ? `<section class="cp-card"><button type="button" class="cp-action-button">Connect TV Here</button></section>` : ""}${showSection("active_login", true) ? `<section class="cp-card" id="cp-login"><h2>Already Have an Active Package?</h2><form class="cp-form" id="portal-login-form"><div class="form-error" role="alert" hidden></div><label>Username<input name="username" autocomplete="username" required maxlength="50"></label><label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="255"></label><label>Device MAC address (optional)<input name="mac_address" autocomplete="off" maxlength="17" placeholder="AA:BB:CC:DD:EE:FF"></label><button class="cp-action-button" type="submit">Click Here To Connect</button></form></section>` : ""}${showSection("mpesa", true) && config.provider_active && config.allow_guest_purchases && state.packages.length ? `<section class="cp-card"><h2>Enter Your Mpesa</h2><form class="cp-form" id="portal-purchase-form"><div class="form-error" role="alert" hidden></div><label>Package<select name="plan_id" required>${state.packages.map((plan) => `<option value="${esc(plan.id)}">${esc(plan.name)} · KSh ${esc(Number(plan.price || 0).toLocaleString())}</option>`).join("")}</select></label><label>Mobile money phone<input name="phone_number" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07xx xxx xxx" required></label><button class="cp-action-button" type="submit">Continue to secure payment</button></form></section>` : ""}${accessResultMarkup()}${purchase ? `<section class="cp-card cp-payment"><h3>Payment status</h3><p>${esc(status?.message || purchase.message || "Complete payment in the secure checkout.")}</p>${purchase.checkout_url ? link(purchase.checkout_url, "Open secure checkout") : `<p>Checkout link is unavailable. Contact your ISP with reference <strong>${esc(purchase.reference)}</strong>.</p>`}<p>Reference: <strong>${esc(purchase.reference)}</strong></p><button class="button button-light" type="button" id="portal-payment-check">Check payment status</button>${status?.is_success ? `<div class="notice notice-neutral" role="status"><strong>${esc(c.success_message || "Payment confirmed.")}</strong>${status.voucher_code ? `<p>Voucher: <strong>${esc(status.voucher_code)}</strong></p>` : ""}${status.hotspot_username ? `<p>Username: ${esc(status.hotspot_username)}</p><p>Password: ${esc(status.hotspot_password || "")}</p>` : ""}${status.login_url ? link(status.login_url, "Connect to hotspot", true) : ""}</div>` : ""}</section>` : ""}${showSection("footer", true) ? `<section class="cp-footer"><p>${esc(welcome)}</p><p>${esc(instructions)}</p>${showSection("contact", true) && contactInfo ? `<p>${esc(contactInfo)}</p>` : ""}${showSection("contact", true) && whatsapp ? `<p>WhatsApp: ${esc(whatsapp)}</p>` : ""}${showSection("contact", true) && supportPhone ? `<p>Phone: ${esc(supportPhone)}</p>` : ""}${footerText ? `<p>${esc(footerText)}</p>` : ""}</section>` : ""}</div>${showSection("floating_support", true) ? `<button type="button" class="cp-floating-support" aria-label="Support">?</button>` : ""}</section>`;
+    holder.querySelector("#portal-reconnect-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const feedback = form.querySelector(".form-error");
+      const code = String(new FormData(form).get("identifier") || "").trim().toUpperCase();
+      submit.disabled = true;
+      feedback.hidden = true;
+      try {
+        const result = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/voucher/redeem`, {
+          method: "POST",
+          body: JSON.stringify({ code, mac_address: null })
+        }));
+        state.accessResult = result;
+        state.notice = result?.message || (result?.success ? "Reconnect request completed." : "Reconnect could not be completed.");
+        render();
+      } catch (requestError) {
+        feedback.textContent = requestError.message || "Reconnect failed.";
+        feedback.hidden = false;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    holder.querySelectorAll(".cp-connect-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const planId = button.dataset.connectPlan;
+        const select = holder.querySelector('select[name="plan_id"]');
+        if (select) select.value = planId;
+        const purchaseForm = holder.querySelector("#portal-purchase-form");
+        if (purchaseForm) purchaseForm.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (state.demo) {
+          state.notice = "Demo mode: Click Here To Connect is a safe preview only. No STK Push or service activation is performed.";
+          render();
+        }
+      });
+    });
+
+    // Global payment modal
+    let modal = document.querySelector("#cp-payment-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "cp-payment-modal";
+      modal.className = "cp-modal";
+      modal.hidden = true;
+      modal.innerHTML = `<div class="cp-modal-card"><button type="button" class="cp-modal-close" id="cp-modal-close">×</button><h2>Enter Your Mpesa</h2><p id="cp-modal-package"></p><form class="cp-form" id="cp-modal-form"><div class="form-error" role="alert" hidden></div><input type="hidden" name="plan_id"><label>Mobile money phone<input name="phone_number" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07xx xxx xxx" required></label><label>Email (optional)<input name="email" type="email" maxlength="254"></label><button class="cp-action-button" type="submit">Continue to secure payment</button></form><div id="cp-modal-status" class="cp-modal-status"></div></div>`;
+      document.body.appendChild(modal);
     }
+    const closeModal = () => { modal.hidden = true; };
+    modal.querySelector("#cp-modal-close")?.addEventListener("click", closeModal);
+    modal.addEventListener("click", (event) => { if (event.target === modal) closeModal(); });
+
+    let pollTimer = null;
+    const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
+    const updateModalStatus = (text) => {
+      const statusEl = modal.querySelector("#cp-modal-status");
+      if (statusEl) statusEl.textContent = text;
+    };
+
+    holder.querySelectorAll(".cp-connect-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const planId = button.dataset.connectPlan;
+        const plan = state.packages.find((p) => String(p.id) === String(planId));
+        if (!plan) return;
+        modal.querySelector('input[name="plan_id"]').value = plan.id;
+        modal.querySelector("#cp-modal-package").textContent = `${plan.name} · KSh ${Number(plan.price || 0).toLocaleString()} · ${plan.duration_minutes ? plan.duration_minutes + " min" : (plan.validity_days || "—") + " days"}`;
+        modal.querySelector(".form-error").hidden = true;
+        modal.querySelector("#cp-modal-status").textContent = "";
+        modal.hidden = false;
+      });
+    });
+
+    modal.querySelector("#cp-modal-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const feedback = form.querySelector(".form-error");
+      const values = Object.fromEntries(new FormData(form).entries());
+      submit.disabled = true;
+      feedback.hidden = true;
+      updateModalStatus("Sending payment request to your phone…");
+      try {
+        if (state.demo) {
+          state.purchase = { success: true, reference: `DEMO-${Date.now()}`, message: "Demo payment created (no charge).", checkout_url: null, status: "pending" };
+        } else {
+          state.purchase = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/purchase`, {
+            method: "POST",
+            body: JSON.stringify({
+              plan_id: Number(values.plan_id),
+              phone_number: String(values.phone_number).trim(),
+              email: String(values.email || "").trim() || null,
+              payment_method: "mpesa"
+            })
+          }));
+        }
+        if (!state.purchase?.success || !state.purchase?.reference) throw new Error(state.purchase?.message || "Could not start payment.");
+        updateModalStatus("Payment prompt requested. Check your phone for the M-Pesa prompt. Waiting for payment confirmation…");
+        // start countdown/polling
+        stopPoll();
+        let seconds = 60;
+        pollTimer = setInterval(async () => {
+          seconds -= 3;
+          if (seconds <= 0) {
+            stopPoll();
+            updateModalStatus("Confirmation was not received in time. You can check payment status manually.");
+            return;
+          }
+          updateModalStatus(`Waiting for payment confirmation… (${seconds}s)`);
+          if (state.demo) return;
+          try {
+            state.purchaseStatus = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/payment/status?reference=${encodeURIComponent(state.purchase.reference)}`));
+            if (state.purchaseStatus?.is_success) {
+              stopPoll();
+              updateModalStatus("Payment received successfully! Activating your internet connection…");
+            } else if (state.purchaseStatus?.is_failed) {
+              stopPoll();
+              updateModalStatus("Payment was not completed. Please try again.");
+            }
+          } catch (e) {
+            // ignore transient errors
+          }
+        }, 3000);
+      } catch (requestError) {
+        feedback.textContent = requestError.message || "Payment failed.";
+        feedback.hidden = false;
+        updateModalStatus("");
+      } finally {
+        submit.disabled = false;
+      }
+    });
     holder.style.setProperty("--portal-brand", color);
     holder.querySelector("#portal-voucher-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -431,6 +590,13 @@ function bindCustomerPortal() {
       submit.disabled = true;
       feedback.hidden = true;
       try {
+        if (state.demo) {
+          state.purchase = { success: true, reference: `DEMO-${Date.now()}`, message: "Demo payment created (no charge).", checkout_url: null, status: "pending" };
+          state.purchaseStatus = null;
+          state.accessResult = null;
+          render();
+          return;
+        }
         state.purchase = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/purchase`, {
           method: "POST",
           body: JSON.stringify({
@@ -454,6 +620,11 @@ function bindCustomerPortal() {
       const button = event.currentTarget;
       button.disabled = true;
       try {
+        if (state.demo) {
+          state.purchaseStatus = { status: "completed", is_completed: true, is_success: true, message: "Demo payment confirmed (simulated).", hotspot_username: "demo", hotspot_password: "demo" };
+          render();
+          return;
+        }
         state.purchaseStatus = unwrap(await api(`/api/v1/portal/hotspot/${encodeURIComponent(state.slug)}/payment/status?reference=${encodeURIComponent(state.purchase.reference)}`));
         render();
       } catch (error) {
@@ -471,9 +642,32 @@ function bindCustomerPortal() {
     button.disabled = true;
     error.hidden = true;
     state.slug = slug;
+    state.demo = state.demo || slug === "demo" || slug === "demo-isp-preview";
     state.notice = "";
     state.config = null;
     holder.innerHTML = `<div class="workspace-loading" role="status">Loading your ISP portal…</div>`;
+    if (state.demo) {
+      state.config = {
+        organization_name: "Demo ISP",
+        portal_title: "Demo ISP Customer Portal",
+        portal_description: "Preview the captive portal experience. No real charges or service activation occur in demo mode.",
+        primary_color: "#6d28d9",
+        show_packages: true,
+        allow_guest_purchases: true,
+        provider_active: true
+      };
+      state.packages = [
+        { id: 1, name: "30 Minutes", description: "Quick browsing", price: 10, currency: "KES", validity_days: 0, duration_minutes: 30, download_speed: 5, upload_speed: 2, data_limit: 1, is_unlimited_data: false },
+        { id: 2, name: "1 Hour", description: "Standard access", price: 20, currency: "KES", validity_days: 0, duration_minutes: 60, download_speed: 10, upload_speed: 5, data_limit: -1, is_unlimited_data: true },
+        { id: 3, name: "Daily", description: "24 hour access", price: 50, currency: "KES", validity_days: 1, duration_minutes: 1440, download_speed: 20, upload_speed: 10, data_limit: -1, is_unlimited_data: true }
+      ];
+      state.accessResult = null;
+      state.purchase = null;
+      state.purchaseStatus = null;
+      state.notice = "Demo mode: package selection and payment states are simulated. No real charges or service activation.";
+      render();
+      return;
+    }
     try {
       const [config, packages] = await Promise.all([
         api(`/api/v1/portal/hotspot/${encodeURIComponent(slug)}/config`),

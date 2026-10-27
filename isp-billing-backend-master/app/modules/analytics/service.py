@@ -177,6 +177,8 @@ class ReportsService:
         pay_filters = [Payment.created_at >= start_date, Payment.created_at <= end_date]
         if self.organization_id:
             pay_filters.append(Payment.organization_id == self.organization_id)
+        # Live business figures exclude simulated/test payments.
+        pay_filters.append(Payment.is_test.is_(False))
 
         payment_query = select(Payment).where(and_(*pay_filters))
 

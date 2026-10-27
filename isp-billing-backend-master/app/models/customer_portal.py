@@ -96,6 +96,9 @@ class VoucherCode(Base):
     sold_at = Column(DateTime, nullable=True)
     sold_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    # Test/simulation flag
+    is_test = Column(Boolean, default=False, nullable=False, index=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -254,6 +257,9 @@ class CustomerSession(Base):
     # Termination
     terminate_cause = Column(String(100), nullable=True)  # User-Request, Session-Timeout, etc.
 
+    # Test/simulation flag
+    is_test = Column(Boolean, default=False, nullable=False, index=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -339,6 +345,9 @@ class CustomerPurchase(Base):
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
     extra_data = Column(JSON, nullable=True)
+
+    # Test/simulation flag
+    is_test = Column(Boolean, default=False, nullable=False, index=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

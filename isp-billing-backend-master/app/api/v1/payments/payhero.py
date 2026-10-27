@@ -634,9 +634,10 @@ async def payment_callback(request: Request, db: AsyncSession = Depends(get_db))
             status=PaymentStatus.COMPLETED,
             transaction_id=transaction.transaction_reference,
             reference_number=receipt_reference,
-            notes=f"PayHero payment {external_reference}",
+            notes=f"PayHero payment {external_reference}" + (" [TEST]" if getattr(transaction, "is_test", False) else ""),
             payment_date=datetime.utcnow(),
             processed_date=datetime.utcnow(),
+            is_test=getattr(transaction, "is_test", False),
         )
         db.add(payment)
 
