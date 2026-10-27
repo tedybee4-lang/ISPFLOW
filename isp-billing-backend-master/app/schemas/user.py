@@ -22,7 +22,7 @@ class UserBase(BaseModel):
     """Base user schema."""
 
     username: str = Field(..., min_length=3, max_length=50)
-    email: str = Field(..., min_length=3, max_length=255)
+    email: Optional[str] = Field(None, min_length=3, max_length=255)
     phone: Optional[str] = Field(None, max_length=20)
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
@@ -31,9 +31,10 @@ class UserBase(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: str) -> str:
+    def validate_email(cls, v):
         """Validate email format, allowing test domains for development."""
-        # Basic email pattern that allows test domains
+        if v is None or v == "":
+            return None
         email_pattern = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
         if not re.match(email_pattern, v):
             raise PydanticCustomError(
@@ -141,12 +142,13 @@ class AdminSetPassword(BaseModel):
 class UserPasswordReset(BaseModel):
     """Schema for password reset request."""
 
-    email: str = Field(..., min_length=3, max_length=255)
+    email: Optional[str] = Field(None, min_length=3, max_length=255)
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: str) -> str:
-        """Validate email format, allowing test domains."""
+    def validate_email(cls, v):
+        if v is None or v == "":
+            return None
         email_pattern = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
         if not re.match(email_pattern, v):
             raise PydanticCustomError(
