@@ -369,8 +369,11 @@ async def initiate_payment(
         raise HTTPException(status_code=422, detail="PayHero payments must use a positive whole-number KES amount.")
 
     phone_number = str(payload.get("phone_number") or "").strip()
-    if not re.fullmatch(r"\+?[0-9]{9,15}", phone_number):
-        raise HTTPException(status_code=422, detail="Enter a valid customer phone number.")
+    try:
+        from app.utils.phone import normalize_kenyan_phone
+        phone_number = normalize_kenyan_phone(phone_number)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Enter a valid Kenyan mobile number.")
 
     payer_id = (
         current_user.id

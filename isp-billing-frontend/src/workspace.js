@@ -1,4 +1,13 @@
-const tabs = [
+function normalizeKenyanPhone(value) {
+  const digits = String(value || "").trim().replace(/\D/g, "");
+  if (digits.startsWith("0") && digits.length === 10 && (digits.charAt(1) === "7" || digits.charAt(1) === "1")) {
+    return "254" + digits.slice(1);
+  }
+  if (digits.length === 12 && digits.startsWith("254") && (digits.charAt(3) === "7" || digits.charAt(3) === "1")) {
+    return digits;
+  }
+  return String(value || "").trim();
+}const tabs = [
   ["overview", "Overview", "admin"],
   ["organizations", "Organizations", "platform"],
   ["leads", "CRM leads", "admin"],
@@ -466,7 +475,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
           try {
             state.customerRenewal = await request(`${customerPath}/renew?${query}`, {
               method: "POST",
-              body: JSON.stringify({ plan_id: Number(values.plan_id), phone_number: String(values.phone_number || "").trim() })
+              body: JSON.stringify({ plan_id: Number(values.plan_id), phone_number: normalizeKenyanPhone(values.phone_number || "") })
             });
             state.customerRenewalResult = null;
             state.customerRenewalNotice = "Payment intent created. Service will renew only after payment is confirmed.";
@@ -1971,6 +1980,7 @@ export async function mountWorkspace(holder, { user, token, api, apiBase }) {
   bindControls();
   loadSection();
 }
+
 
 
 

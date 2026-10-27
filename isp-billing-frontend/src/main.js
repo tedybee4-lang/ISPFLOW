@@ -1,4 +1,13 @@
-import "./styles.css";
+function normalizeKenyanPhone(value) {
+  const digits = String(value || "").trim().replace(/\D/g, "");
+  if (digits.startsWith("0") && digits.length === 10 && (digits.charAt(1) === "7" || digits.charAt(1) === "1")) {
+    return "254" + digits.slice(1);
+  }
+  if (digits.length === 12 && digits.startsWith("254") && (digits.charAt(3) === "7" || digits.charAt(3) === "1")) {
+    return digits;
+  }
+  return String(value || "").trim();
+}import "./styles.css";
 import { mountWorkspace } from "./workspace.js";
 
 const DEFAULT_API_BASE = ["localhost", "127.0.0.1"].includes(location.hostname)
@@ -497,7 +506,7 @@ function bindCustomerPortal() {
             method: "POST",
             body: JSON.stringify({
               plan_id: Number(values.plan_id),
-              phone_number: String(values.phone_number).trim(),
+              phone_number: normalizeKenyanPhone(values.phone_number),
               email: String(values.email || "").trim() || null,
               payment_method: "mpesa"
             })
@@ -601,7 +610,7 @@ function bindCustomerPortal() {
           method: "POST",
           body: JSON.stringify({
             plan_id: Number(values.plan_id),
-            phone_number: String(values.phone_number).trim(),
+            phone_number: normalizeKenyanPhone(values.phone_number),
             email: String(values.email || "").trim() || null,
             payment_method: values.payment_method
           })
@@ -808,3 +817,4 @@ function bindContact() {
     location.href = `mailto:${encodeURIComponent(target)}?subject=${subject}&body=${body}`;
   });
 }
+

@@ -820,9 +820,14 @@ async def _purchase_via_treasury(
 
     # Local snapshot first (so the poller can find it by reference even if the
     # browser returns before treasury's webhook/poll confirms).
+    try:
+        from app.utils.phone import normalize_kenyan_phone
+        normalized_phone = normalize_kenyan_phone(data.phone_number)
+    except ValueError:
+        normalized_phone = data.phone_number
     purchase = CustomerPurchase(
         organization_id=organization.id,
-        phone_number=data.phone_number,
+        phone_number=normalized_phone,
         email=data.email,
         plan_id=plan.id,
         amount=plan.price,
@@ -856,7 +861,7 @@ async def _purchase_via_treasury(
             description=f"{plan.name} - {organization.name}",
             idempotency_key=reference,
             customer_email=data.email,
-            customer_phone=data.phone_number or None,
+            customer_phone=normalized_phone or None,
             callback_url=redirect_url,
             metadata={
                 "organization_id": organization.id,
@@ -1163,6 +1168,10 @@ async def redeem_voucher(
                 expires_at=expires_at,
                 is_voucher_redeem=True,
                 is_test=bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False)),
+                amount=plan.price if bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False)) else None,
+                currency=plan.currency or "KES",
+                payment_reference=(f"TEST-VOUCHER-{voucher.id}" if bool(getattr(data, "test_mode", False) or getattr(data, "is_test", False)) else None),
+                payment_method="voucher",
             )
         except Exception as bridge_exc:  # never break the redeem
             logger.error(

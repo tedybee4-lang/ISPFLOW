@@ -237,7 +237,7 @@ async def _maybe_create_payment(
         status=PaymentStatus.COMPLETED,
         reference_number=reference,
         payment_date=datetime.utcnow(),
-        notes="Hotspot package purchase" + (" [TEST]" if is_test else ""),
+        notes="Test voucher redemption" + (" [TEST]" if is_test else "") if (method or "").lower() == "voucher" and is_test else ("Hotspot package purchase" + (" [TEST]" if is_test else "")),
         is_test=is_test,
     )
     db.add(payment)
@@ -304,7 +304,7 @@ async def bridge_hotspot_purchase_to_dashboard(
                 is_test=is_test,
             )
 
-        if not is_voucher_redeem and amount is not None:
+        if amount is not None and (not is_voucher_redeem or is_test):
             await _maybe_create_payment(
                 db,
                 organization,

@@ -227,14 +227,12 @@ class MpesaPaymentRequest(BaseModel):
 
     @validator("phone_number")
     def validate_phone_number(cls, v):
-        """Validate phone number format."""
-        import re
-        # Remove any non-digit characters
-        phone = re.sub(r'\D', '', v)
-        # Check if it's a valid Kenyan phone number
-        if not re.match(r'^(254|0)[0-9]{9}$', phone):
-            raise ValueError("Invalid phone number format")
-        return phone
+        """Validate and normalize phone number format."""
+        from app.utils.phone import normalize_kenyan_phone
+        try:
+            return normalize_kenyan_phone(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
 
 
 class MpesaPaymentResponse(BaseModel):
