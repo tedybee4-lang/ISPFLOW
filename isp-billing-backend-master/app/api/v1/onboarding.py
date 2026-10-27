@@ -76,6 +76,11 @@ class SecuritySetupRequest(BaseModel):
     password: str = Field(..., min_length=8)
     confirm_password: str
 
+    @field_validator("password")
+    @classmethod
+    def normalize_password(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
     @field_validator("confirm_password")
     @classmethod
     def passwords_match(cls, v, info):
@@ -608,14 +613,32 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=200)
     business_name: str = Field(..., min_length=2, max_length=200)
     business_type: OrganizationType = OrganizationType.HYBRID
-    phone: str = Field(..., pattern=r"^\+?[1-9]\d{1,14}$")
+    phone: str = Field(..., min_length=9, max_length=20)
     password: str = Field(..., min_length=8)
     confirm_password: str
+
+    @field_validator("password")
+    @classmethod
+    def normalize_password(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v):
+        from app.utils.phone import normalize_kenyan_phone
+        try:
+            return normalize_kenyan_phone(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
 
     @field_validator("confirm_password")
     @classmethod
     def passwords_match(cls, v, info):
-        if "password" in info.data and v != info.data["password"]:
+        v = v.strip() if isinstance(v, str) else v
+        password = info.data.get("password")
+        if isinstance(password, str):
+            password = password.strip()
+        if password is not None and v != password:
             raise ValueError("Passwords do not match")
         return v
 

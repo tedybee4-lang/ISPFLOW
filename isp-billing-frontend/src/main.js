@@ -754,9 +754,9 @@ function bindRegistration() {
           full_name: values.get("full_name"),
           business_name: values.get("business_name"),
           business_type: values.get("business_type"),
-          phone: values.get("phone"),
-          password: values.get("password"),
-          confirm_password: values.get("confirm_password")
+          phone: normalizeKenyanPhone(values.get("phone")),
+          password: String(values.get("password") || "").trim(),
+          confirm_password: String(values.get("confirm_password") || "").trim(),
         })
       });
       const data = response.data || response;
